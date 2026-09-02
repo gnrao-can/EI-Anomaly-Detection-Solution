@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>AI Anomaly Detection Service — Demo</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --panel: #1e293b;
+    --border: #334155;
+    --text: #e2e8f0;
+    --text-dim: #94a3b8;
+    --text-muted: #64748b;
+    --heading: #f8fafc;
+
+    --risk-low: #22c55e;
+    --risk-medium: #f59e0b;
+    --risk-high: #f97316;
+    --risk-critical: #ef4444;
+
+    --prog-ei: #3b82f6;
+    --prog-oas: #8b5cf6;
+    --prog-cpp: #06b6d4;
+
+    --rec-proceed: #22c55e;
+    --rec-flag: #f59e0b;
+    --rec-inv: #ef4444;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  button { font-family: inherit; cursor: pointer; }
+
+  .section-title {
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: 14px;
+    color: var(--text-dim);
+    margin: 0 0 12px 0;
+    font-weight: 600;
+  }
+
+  .panel {
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 16px;
+  }
+
+  /* ============================================================
+     (A) LANDING / PREAMBLE OVERLAY
+     ============================================================ */
+  #landing {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: linear-gradient(160deg, #0f172a 0%, #111f38 55%, #1e293b 100%);
+    overflow-y: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 24px;
+  }
+  #landing.hidden { display: none; }
+
+  .landing-inner {
+    max-width: 900px;
+    width: 100%;
+    text-align: center;
+  }
+  .landing-inner h1 {
+    color: var(--heading);
+    font-size: 40px;
+    margin: 0 0 8px 0;
+    letter-spacing: -0.01em;
+  }
+  .landing-sub {
+    color: var(--text-dim);
+    font-size: 17px;
+    margin: 0 auto 28px;
+    max-width: 640px;
+  }
+  .preamble {
+    text-align: left;
+    background: rgba(30, 41, 59, 0.55);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 22px 26px;
+    margin: 0 auto 28px;
+    max-width: 760px;
+  }
+  .preamble p {
+    color: var(--text);
+    font-size: 15px;
+    line-height: 1.6;
+    margin: 0 0 14px 0;
+  }
+  .preamble p:last-child { margin-bottom: 0; }
+
+  .feature-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+    margin: 0 auto 30px;
+    max-width: 820px;
+  }
+  .feature-card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    text-align: left;
+  }
+  .feature-card .dot {
+    width: 10px; height: 10px; border-radius: 50%;
+    display: inline-block; margin-bottom: 10px;
+  }
+  .feature-card h3 {
+    color: var(--heading);
+    font-size: 14px;
+    margin: 0 0 6px 0;
+  }
+  .feature-card p {
+    color: var(--text-dim);
+    font-size: 12px;
+    line-height: 1.4;
+    margin: 0;
+  }
+
+  .btn-primary {
+    background: var(--prog-ei);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 28px;
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .btn-primary:hover { filter: brightness(1.08); }
+
+  .landing-note {
+    color: var(--text-muted);
+    font-size: 13px;
+    margin-top: 16px;
+  }
+
+  @media (max-width: 760px) {
+    .feature-row { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ============================================================
+     (B) DASHBOARD
+     ============================================================ */
+  #dashboard {
+    display: none;
+    padding: 24px 28px 40px;
+  }
+  #dashboard.visible { display: block; }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 16px;
+    margin-bottom: 32px;
+    gap: 24px;
+    flex-wrap: wrap;
+  }
+  .header h1 {
+    font-size: 24px;
+    color: var(--heading);
+    margin: 0 0 4px 0;
+  }
+  .header .subtitle {
+    font-size: 14px;
+    color: var(--text-dim);
+    margin: 0;
+  }
+  .header-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 10px;
+  }
+  .header-controls {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+
+  .view-toggle {
+    display: inline-flex;
+    background: #1e293b;
+    border-radius: 6px;
+    padding: 2px;
+    gap: 2px;
+  }
+  .view-toggle button {
+    background: transparent;
+    color: var(--text-dim);
+    border: none;
+    border-radius: 5px;
+    padding: 6px 14px;
+    font-size: 13px;
+    text-transform: capitalize;
+  }
+  .view-toggle button.active {
+    background: #334155;
+    color: #f8fafc;
+  }
+
+  .live-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .status-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--risk-low);
+    box-shadow: 0 0 6px var(--risk-low);
+  }
+  .counter-text { color: var(--text-muted); font-size: 12px; }
+
+  .btn-tour {
+    background: var(--prog-oas);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .btn-tour:hover { filter: brightness(1.1); }
+
+  /* ---- LIVE VIEW GRID ---- */
+  #view-live {
+    display: grid;
+    grid-template-columns: 300px 1fr 320px;
+    gap: 24px;
+    align-items: start;
+  }
+  #view-live.hidden, #view-analytics.hidden, #view-explainability.hidden { display: none; }
+
+  .side-panel { margin-bottom: 16px; }
+
+  /* Simulation control buttons */
+  .sim-buttons { display: flex; gap: 8px; margin-bottom: 14px; }
+  .sim-buttons button {
+    flex: 1;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 0;
+    font-size: 13px;
+    font-weight: 600;
+    color: #fff;
+  }
+  .sim-start { background: var(--risk-low); }
+  .sim-stop { background: var(--risk-critical); }
+  .sim-reset { background: var(--text-muted); }
+  .sim-buttons button:hover { filter: brightness(1.1); }
+
+  .sim-status { font-size: 12px; color: var(--text-dim); line-height: 1.7; }
+  .sim-status .val { color: var(--text); }
+
+  /* Scenario buttons */
+  .scenario-btn {
+    display: block;
+    width: 100%;
+    text-align: left;
+    background: #0f172a;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    color: var(--text);
+  }
+  .scenario-btn:last-child { margin-bottom: 0; }
+  .scenario-btn:hover { border-color: var(--prog-ei); }
+  .scenario-btn.active { border-color: var(--prog-ei); background: #14213b; }
+  .scenario-btn .s-name { font-weight: 600; font-size: 13px; color: var(--heading); }
+  .scenario-btn .s-desc { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+
+  /* Risk distribution rows */
+  .risk-row { margin-bottom: 12px; }
+  .risk-row:last-child { margin-bottom: 0; }
+  .risk-row .r-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    margin-bottom: 5px;
+  }
+  .risk-row .r-dot { width: 9px; height: 9px; border-radius: 50%; }
+  .risk-row .r-label { flex: 1; color: var(--text); }
+  .risk-row .r-count { color: var(--text-dim); font-weight: 600; }
+  .bar-track { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 2px; transition: width 0.4s ease; }
+
+  /* Program breakdown */
+  .prog-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+  .prog-row:last-child { margin-bottom: 0; }
+  .prog-square { width: 11px; height: 11px; border-radius: 3px; }
+  .prog-row .p-label { flex: 1; color: var(--text); }
+  .prog-row .p-count { color: var(--text-dim); font-weight: 600; }
+
+  /* Feed */
+  .feed-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+  }
+  .feed-header .fh-title { font-size: 14px; color: var(--heading); font-weight: 600; }
+  .feed-header .fh-counts { font-size: 12px; color: var(--text-muted); }
+
+  .feed-list {
+    max-height: calc(100vh - 220px);
+    overflow-y: auto;
+    padding-right: 6px;
+  }
+  .feed-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 40px 12px;
+  }
+
+  .assessment-card {
+    background: #0f172a;
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity 0.35s ease, transform 0.35s ease, background 0.2s ease;
+  }
+  .assessment-card.shown { opacity: 1; transform: translateY(0); }
+  .assessment-card:hover { background: #14213b; }
+  .assessment-card.selected { background: #1a2744; }
+
+  .ac-top { display: flex; justify-content: space-between; align-items: center; }
+  .ac-left { display: flex; align-items: center; gap: 8px; }
+  .program-badge {
+    color: #fff;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .ac-claimid { font-size: 12px; color: #cbd5e1; }
+  .ac-score { font-size: 20px; font-weight: 700; }
+  .ac-second {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 6px;
+    font-size: 11px;
+    flex-wrap: wrap;
+  }
+  .ac-level { font-weight: 600; }
+  .ac-rec { font-weight: 600; }
+  .ac-time { color: var(--text-muted); margin-left: auto; }
+
+  /* Detail / explainability panel */
+  .detail-panel {
+    background: var(--panel);
+    border-radius: 8px;
+    padding: 16px;
+    height: calc(100vh - 150px);
+    overflow-y: auto;
+  }
+  .detail-empty {
+    color: var(--text-muted);
+    font-size: 13px;
+    text-align: center;
+    padding: 60px 16px;
+    line-height: 1.5;
+  }
+  .detail-field { margin-bottom: 14px; }
+  .detail-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    margin-bottom: 4px;
+  }
+  .detail-value { font-size: 14px; color: var(--text); }
+  .detail-score { font-size: 36px; font-weight: 700; line-height: 1.1; }
+  .detail-conf { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .detail-rec { font-size: 15px; font-weight: 700; }
+
+  .detail-divider {
+    border-top: 1px solid var(--border);
+    padding-top: 16px;
+    margin-top: 4px;
+  }
+  .indicators-title {
+    font-size: 13px;
+    color: var(--heading);
+    font-weight: 600;
+    margin-bottom: 10px;
+  }
+  .indicator-card {
+    background: #0f172a;
+    border-radius: 6px;
+    border-left: 3px solid var(--border);
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+  .ind-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .ind-title { font-weight: 700; font-size: 13px; }
+  .ind-source {
+    background: #334155;
+    color: var(--text-dim);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .ind-desc { font-size: 12px; color: var(--text-dim); margin: 6px 0; line-height: 1.4; }
+  .ind-bottom { display: flex; gap: 14px; font-size: 10px; color: var(--text-muted); }
+  .no-indicators { font-size: 12px; color: var(--text-muted); }
+
+  /* ---- ANALYTICS VIEW ---- */
+  #view-analytics { display: grid; gap: 20px; grid-template-columns: 1fr 1fr; }
+  #view-analytics .full { grid-column: 1 / -1; }
+  .analytics-bar-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 12px; font-size: 13px;
+  }
+  .analytics-bar-row .lbl { width: 90px; color: var(--text); }
+  .analytics-bar-row .track { flex: 1; height: 14px; background: var(--border); border-radius: 4px; overflow: hidden; }
+  .analytics-bar-row .fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+  .analytics-bar-row .cnt { width: 40px; text-align: right; color: var(--text-dim); }
+  .stat-row { display: flex; gap: 20px; }
+  .stat-box { flex: 1; background: #0f172a; border-radius: 6px; padding: 16px; text-align: center; }
+  .stat-box .num { font-size: 28px; font-weight: 700; color: var(--heading); }
+  .stat-box .lbl { font-size: 12px; color: var(--text-dim); margin-top: 4px; }
+  .analytics-note { color: var(--text-muted); font-size: 12px; margin-top: 6px; }
+
+  /* ---- EXPLAINABILITY VIEW ---- */
+  #view-explainability { display: grid; grid-template-columns: 360px 1fr; gap: 24px; align-items: start; }
+  .exp-list { max-height: calc(100vh - 160px); overflow-y: auto; padding-right: 6px; }
+  .exp-list-card {
+    background: #0f172a;
+    border: 1px solid var(--border);
+    border-left-width: 4px;
+    border-radius: 6px;
+    padding: 8px 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .exp-list-card:hover { background: #14213b; }
+  .exp-list-card.selected { background: #1a2744; }
+  .exp-list-card .cid { font-size: 12px; color: #cbd5e1; flex: 1; }
+  .exp-list-card .sc { font-weight: 700; font-size: 14px; }
+
+  /* ============================================================
+     (C) GUIDED TOUR STEPPER
+     ============================================================ */
+  #tour {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    width: 400px;
+    max-width: calc(100vw - 32px);
+    z-index: 900;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+    box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    display: none;
+  }
+  #tour.visible { display: block; }
+  .tour-head { display: flex; justify-content: space-between; align-items: flex-start; }
+  .tour-step-counter { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+  .tour-close {
+    background: transparent; border: none; color: var(--text-dim);
+    font-size: 18px; line-height: 1; padding: 2px 6px; border-radius: 4px;
+  }
+  .tour-close:hover { color: var(--heading); background: #334155; }
+  .tour-title { font-size: 16px; color: var(--heading); font-weight: 700; margin: 6px 0 8px; }
+  .tour-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-bottom: 10px; }
+  .tour-points { margin: 0 0 14px; padding-left: 18px; }
+  .tour-points li { font-size: 12px; color: var(--text); line-height: 1.5; margin-bottom: 6px; }
+  .tour-nav { display: flex; align-items: center; gap: 10px; }
+  .tour-nav button {
+    background: #334155; color: var(--text); border: none;
+    border-radius: 6px; padding: 7px 16px; font-size: 13px; font-weight: 600;
+  }
+  .tour-nav button:hover:not(:disabled) { filter: brightness(1.15); }
+  .tour-nav button:disabled { opacity: 0.4; cursor: default; }
+  .tour-nav .next { background: var(--prog-ei); color: #fff; margin-left: auto; }
+
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+</style>
+</head>
+<body>
+
+<!-- ============================================================
+     (A) LANDING / EXECUTIVE PREAMBLE OVERLAY
+     ============================================================ -->
+<div id="landing">
+  <div class="landing-inner">
+    <h1>AI Anomaly Detection Service</h1>
+    <p class="landing-sub">Real-time fraud &amp; anomaly detection for Public Sector Social Benefit Programs (Eg., EI, OAS, CPP)</p>
+
+    <div class="preamble">
+      <p>The Anomaly Detection Service (ADS) is a unified, real-time intelligence layer that screens benefit claims across programs the moment they arrive — assigning each a risk score, a plain-language explanation, and a recommended action for investigators.</p>
+      <p>ADS fuses two complementary signals: a machine-learning model that learns population-level patterns, and a transparent business-rule engine encoding policy and eligibility logic. Every score is explainable — investigators see exactly which indicators drove the assessment and why.</p>
+      <p>Because ADS spans EI, OAS, and CPP together, it detects what siloed systems miss: the same identity contradicting itself across programs, coordinated identity rings, and abuse patterns hidden inside seasonal volume — in seconds, not months.</p>
+    </div>
+
+    <div class="feature-row">
+      <div class="feature-card">
+        <span class="dot" style="background: var(--prog-ei);"></span>
+        <h3>Real-time Scoring</h3>
+        <p>Sub-500ms risk assessment per claim, at volume.</p>
+      </div>
+      <div class="feature-card">
+        <span class="dot" style="background: var(--prog-oas);"></span>
+        <h3>Explainable AI</h3>
+        <p>Human-readable indicators show the why behind every score.</p>
+      </div>
+      <div class="feature-card">
+        <span class="dot" style="background: var(--prog-cpp);"></span>
+        <h3>Cross-Program Correlation</h3>
+        <p>Detects contradictions the same identity creates across EI/OAS/CPP.</p>
+      </div>
+      <div class="feature-card">
+        <span class="dot" style="background: var(--risk-low);"></span>
+        <h3>Low False Positives</h3>
+        <p>Legitimate patterns stay quiet — under 5% false-positive target.</p>
+      </div>
+    </div>
+
+    <button class="btn-primary" onclick="enterDemo()">Continue to Demo</button>
+    <p class="landing-note">You'll be able to click through the live investigator dashboard and take a guided tour of five detection scenarios.</p>
+  </div>
+</div>
+
+<!-- ============================================================
+     (B) INVESTIGATOR DASHBOARD
+     ============================================================ -->
+<div id="dashboard">
+  <div class="header">
+    <div class="header-left">
+      <h1>AI Anomaly Detection Service</h1>
+      <p class="subtitle">Real-time investigator dashboard — Public Sector Social Benefit Programs (Eg., EI, OAS, CPP)</p>
+    </div>
+    <div class="header-right">
+      <div class="header-controls">
+        <div class="view-toggle" id="viewToggle">
+          <button data-view="live" class="active" onclick="setView('live')">live</button>
+          <button data-view="analytics" onclick="setView('analytics')">analytics</button>
+          <button data-view="explainability" onclick="setView('explainability')">explainability</button>
+        </div>
+        <button class="btn-tour" onclick="tourStart()">Start Guided Tour</button>
+      </div>
+      <div class="header-controls">
+        <div class="live-status"><span class="status-dot"></span> Live</div>
+        <span class="counter-text" id="headerCounter">0 assessments | Avg 12ms</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- LIVE VIEW -->
+  <div id="view-live">
+    <!-- LEFT COLUMN -->
+    <aside>
+      <div class="panel side-panel">
+        <h2 class="section-title">Simulation Controls</h2>
+        <div class="sim-buttons">
+          <button class="sim-start" onclick="playFeed()">Start</button>
+          <button class="sim-stop" onclick="pauseFeed()">Stop</button>
+          <button class="sim-reset" onclick="resetFeed()">Reset</button>
+        </div>
+        <div class="sim-status">
+          <div>Status: <span class="val" id="simStatus">Stopped</span></div>
+          <div>Mode: <span class="val">scenario</span></div>
+          <div>Generated: <span class="val" id="simGenerated">0</span> claims</div>
+          <div>EI: <span class="val" id="simEI">0</span> | OAS: <span class="val" id="simOAS">0</span> | CPP: <span class="val" id="simCPP">0</span></div>
+        </div>
+      </div>
+
+      <div class="panel side-panel">
+        <h2 class="section-title">Scenarios</h2>
+        <div id="scenarioButtons"></div>
+      </div>
+
+      <div class="panel side-panel">
+        <h2 class="section-title">Risk Distribution</h2>
+        <div id="riskDistribution"></div>
+      </div>
+
+      <div class="panel side-panel">
+        <h2 class="section-title">Program Breakdown</h2>
+        <div id="programBreakdown"></div>
+      </div>
+    </aside>
+
+    <!-- CENTER COLUMN -->
+    <main>
+      <div class="panel">
+        <div class="feed-header">
+          <span class="fh-title">Live Assessment Feed</span>
+          <span class="fh-counts" id="feedCounts">0 total | 0 alerts</span>
+        </div>
+        <div class="feed-list" id="feedList">
+          <div class="feed-empty">Select a scenario and press Start to begin real-time scoring.</div>
+        </div>
+      </div>
+    </main>
+
+    <!-- RIGHT COLUMN -->
+    <aside>
+      <h2 class="section-title" style="margin-left:2px;">AI Explainability</h2>
+      <div class="detail-panel" id="detailPanel">
+        <div class="detail-empty">Select an assessment from the live feed to view AI-generated indicators and explanations</div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ANALYTICS VIEW -->
+  <div id="view-analytics" class="hidden">
+    <div class="panel">
+      <h2 class="section-title">Risk Distribution</h2>
+      <div id="analyticsRisk"></div>
+    </div>
+    <div class="panel">
+      <h2 class="section-title">Program Breakdown</h2>
+      <div id="analyticsProgram"></div>
+    </div>
+    <div class="panel full">
+      <h2 class="section-title">Throughput</h2>
+      <div class="stat-row" id="analyticsThroughput"></div>
+      <p class="analytics-note">Analytics reflect the currently loaded scenario feed.</p>
+    </div>
+  </div>
+
+  <!-- EXPLAINABILITY VIEW -->
+  <div id="view-explainability" class="hidden">
+    <aside>
+      <h2 class="section-title">Select Assessment</h2>
+      <div class="exp-list" id="expList">
+        <div class="feed-empty">No assessments loaded yet.</div>
+      </div>
+    </aside>
+    <main>
+      <h2 class="section-title">AI Explainability</h2>
+      <div class="detail-panel" id="detailPanelExp">
+        <div class="detail-empty">Select an assessment from the list to view AI-generated indicators and explanations</div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- ============================================================
+     (C) GUIDED TOUR STEPPER
+     ============================================================ -->
+<div id="tour" role="dialog" aria-label="Guided tour">
+  <div class="tour-head">
+    <span class="tour-step-counter" id="tourCounter">Step 1 of 5</span>
+    <button class="tour-close" aria-label="Close tour" onclick="tourClose()">&times;</button>
+  </div>
+  <div class="tour-title" id="tourTitle"></div>
+  <div class="tour-desc" id="tourDesc"></div>
+  <ul class="tour-points" id="tourPoints"></ul>
+  <div class="tour-nav">
+    <button class="back" id="tourBackBtn" onclick="tourBack()">Back</button>
+    <button class="next" id="tourNextBtn" onclick="tourNext()">Next</button>
+  </div>
+</div>
+
+<script>
+/* ============================================================
+   DATA BLOCK — SCENARIOS
+   ============================================================ */
+"use strict";
+
+var RISK_COLORS = { LOW: "#22c55e", MEDIUM: "#f59e0b", HIGH: "#f97316", CRITICAL: "#ef4444" };
+var PROGRAM_COLORS = { EI: "#3b82f6", OAS: "#8b5cf6", CPP: "#06b6d4" };
+var REC_COLORS = { PROCEED: "#22c55e", FLAG_FOR_REVIEW: "#f59e0b", INVESTIGATE: "#ef4444", ESCALATE: "#ef4444" };
+
+function levelFor(score) {
+  if (score >= 85) return "CRITICAL";
+  if (score >= 65) return "HIGH";
+  if (score >= 35) return "MEDIUM";
+  return "LOW";
+}
+
+var SCENARIOS = {
+  "clean-day": {
+    id: "clean-day",
+    name: "Clean Day — Baseline Operations",
+    description: "Demonstrates normal system operation with legitimate claims across all programs. Shows that the system correctly identifies low-risk submissions and does not generate false positives.",
+    talkingPoints: [
+      "This is what a normal day looks like — 35 claims flowing through with minimal alerts",
+      "The AI assigns low scores to legitimate patterns, keeping false positive rates under 5%",
+      "Notice how processing time stays under 500ms per claim even at volume",
+      "Investigators see a quiet dashboard — they can focus on real anomalies"
+    ],
+    assessments: [
+      { claimId: "EI-2024-100341", programType: "EI", riskScore: 14, confidence: 0.95, recommendation: "PROCEED", processingTimeMs: 9, narrativeNote: "Standard EI claim — verified employment history and ROE match.", indicators: [] },
+      { claimId: "OAS-2024-100342", programType: "OAS", riskScore: 12, confidence: 0.96, recommendation: "PROCEED", processingTimeMs: 7, narrativeNote: "OAS pension application — residency and age fully corroborated.", indicators: [] },
+      { claimId: "CPP-2024-100343", programType: "CPP", riskScore: 18, confidence: 0.93, recommendation: "PROCEED", processingTimeMs: 11, narrativeNote: "CPP retirement claim — contribution record consistent.", indicators: [
+        { title: "Nominal Model Confidence", category: "BEHAVIORAL", severity: "LOW", source: "ML", description: "Population model places this claim well within normal bounds.", confidence: 0.91 }
+      ] },
+      { claimId: "EI-2024-100344", programType: "EI", riskScore: 22, confidence: 0.9, recommendation: "PROCEED", processingTimeMs: 8, narrativeNote: "Routine EI claim following documented layoff.", indicators: [] },
+      { claimId: "EI-2024-100345", programType: "EI", riskScore: 16, confidence: 0.94, recommendation: "PROCEED", processingTimeMs: 10, narrativeNote: "Standard EI claim — no anomalies detected.", indicators: [] },
+      { claimId: "OAS-2024-100346", programType: "OAS", riskScore: 20, confidence: 0.92, recommendation: "PROCEED", processingTimeMs: 6, narrativeNote: "OAS application — long-term resident, clean record.", indicators: [] },
+      { claimId: "CPP-2024-100347", programType: "CPP", riskScore: 27, confidence: 0.89, recommendation: "PROCEED", processingTimeMs: 13, narrativeNote: "CPP claim — minor data variance, well within tolerance.", indicators: [
+        { title: "Nominal Model Confidence", category: "BEHAVIORAL", severity: "LOW", source: "ML", description: "Feature vector matches legitimate claimant profile.", confidence: 0.88 }
+      ] }
+    ]
+  },
+
+  "identity-ring": {
+    id: "identity-ring",
+    name: "Identity Ring Detection",
+    description: "Demonstrates the AI detecting a cluster of claims linked to the same identity across multiple programs and fictitious employers. Shows progressive risk escalation and cross-program correlation.",
+    talkingPoints: [
+      "Watch the risk scores escalate as the system correlates multiple claims from the same identity",
+      "The AI identifies the network pattern — same person, different shell employers",
+      "Cross-program detection catches the same identity filing EI and CPP simultaneously",
+      "Human-readable indicators explain WHY the score is high, not just that it is",
+      "This pattern would take an investigator days to spot manually — the AI catches it in seconds"
+    ],
+    assessments: [
+      { claimId: "EI-2024-200101", programType: "EI", riskScore: 15, confidence: 0.94, recommendation: "PROCEED", processingTimeMs: 8, narrativeNote: "Baseline EI claim — no correlation yet.", indicators: [] },
+      { claimId: "EI-2024-200102", programType: "EI", riskScore: 19, confidence: 0.92, recommendation: "PROCEED", processingTimeMs: 9, narrativeNote: "Baseline EI claim — normal profile.", indicators: [] },
+      { claimId: "EI-2024-200103", programType: "EI", riskScore: 48, confidence: 0.82, recommendation: "FLAG_FOR_REVIEW", processingTimeMs: 14, narrativeNote: "Ring member 1: Same identity, different employer.", indicators: [
+        { title: "Shared Identity Correlation", category: "IDENTITY", severity: "MEDIUM", source: "RULE", description: "SIN and biographical markers overlap with another recent EI filing.", confidence: 0.8 }
+      ] },
+      { claimId: "EI-2024-200104", programType: "EI", riskScore: 55, confidence: 0.84, recommendation: "FLAG_FOR_REVIEW", processingTimeMs: 15, narrativeNote: "Ring member 2: Same identity, different employer.", indicators: [
+        { title: "Shared Identity Correlation", category: "IDENTITY", severity: "MEDIUM", source: "RULE", description: "Identity markers match a growing cluster of EI claims.", confidence: 0.83 },
+        { title: "Fictitious Employer Pattern", category: "EMPLOYMENT", severity: "MEDIUM", source: "COMBINED", description: "Employer has no verifiable payroll or business registration footprint.", confidence: 0.79 }
+      ] },
+      { claimId: "EI-2024-200105", programType: "EI", riskScore: 70, confidence: 0.88, recommendation: "INVESTIGATE", processingTimeMs: 18, narrativeNote: "Ring member 3: Same identity, different employer.", indicators: [
+        { title: "Shared Identity Correlation", category: "IDENTITY", severity: "HIGH", source: "RULE", description: "Identity now linked to four distinct EI claims in the same window.", confidence: 0.89 },
+        { title: "Fictitious Employer Pattern", category: "EMPLOYMENT", severity: "HIGH", source: "COMBINED", description: "Multiple shell employers share the same mailing address.", confidence: 0.86 }
+      ] },
+      { claimId: "EI-2024-200106", programType: "EI", riskScore: 78, confidence: 0.9, recommendation: "INVESTIGATE", processingTimeMs: 19, narrativeNote: "Ring member 4: Same identity, different employer.", indicators: [
+        { title: "Shared Identity Correlation", category: "IDENTITY", severity: "HIGH", source: "RULE", description: "Cluster confidence high — coordinated identity network detected.", confidence: 0.91 },
+        { title: "Fictitious Employer Pattern", category: "EMPLOYMENT", severity: "HIGH", source: "COMBINED", description: "Employer records fabricated; ROE data inconsistent across filings.", confidence: 0.88 }
+      ] },
+      { claimId: "CPP-2024-200107", programType: "CPP", riskScore: 90, confidence: 0.95, recommendation: "ESCALATE", processingTimeMs: 22, narrativeNote: "CRITICAL: Same identity now appearing in CPP — cross-program anomaly detected.", indicators: [
+        { title: "Cross-Program Identity Match", category: "IDENTITY", severity: "CRITICAL", source: "COMBINED", description: "Identity from the EI ring is now filing a CPP claim, confirming coordinated abuse across programs.", confidence: 0.95 },
+        { title: "Shared Identity Correlation", category: "IDENTITY", severity: "HIGH", source: "RULE", description: "Same SIN and biographical cluster spanning EI and CPP.", confidence: 0.92 }
+      ] }
+    ]
+  },
+
+  "seasonal-spike": {
+    id: "seasonal-spike",
+    name: "Seasonal Spike Analysis",
+    description: "Simulates an end-of-season EI filing surge with embedded anomalies. Shows how the AI distinguishes legitimate seasonal claims from pattern abuse hidden within the volume.",
+    talkingPoints: [
+      "During seasonal spikes, fraudulent claims hide in the volume",
+      "The AI processes 30 claims per second while spotting the 4 anomalous ones",
+      "Legitimate seasonal workers get low scores — no false positives from seasonality alone",
+      "Pattern abusers show specific indicators: low hours + high benefits + repeated claims",
+      "This catches the \"serial seasonal\" fraud pattern that costs millions annually"
+    ],
+    assessments: [
+      { claimId: "EI-2024-300201", programType: "EI", riskScore: 17, confidence: 0.93, recommendation: "PROCEED", processingTimeMs: 8, narrativeNote: "Legitimate seasonal layoff — expected pattern.", indicators: [] },
+      { claimId: "EI-2024-300202", programType: "EI", riskScore: 21, confidence: 0.91, recommendation: "PROCEED", processingTimeMs: 9, narrativeNote: "Legitimate seasonal layoff — expected pattern.", indicators: [] },
+      { claimId: "EI-2024-300203", programType: "EI", riskScore: 74, confidence: 0.89, recommendation: "INVESTIGATE", processingTimeMs: 17, narrativeNote: "ANOMALY: Low hours but maximum benefits claimed — pattern abuse.", indicators: [
+        { title: "Low Insurable Hours / High Benefit", category: "FINANCIAL", severity: "HIGH", source: "COMBINED", description: "Insurable hours near minimum threshold yet benefit claimed at maximum rate.", confidence: 0.88 },
+        { title: "Repeat Seasonal Claimant", category: "BEHAVIORAL", severity: "MEDIUM", source: "ML", description: "Claimant has filed in the same season for multiple consecutive years.", confidence: 0.81 }
+      ] },
+      { claimId: "EI-2024-300204", programType: "EI", riskScore: 18, confidence: 0.92, recommendation: "PROCEED", processingTimeMs: 8, narrativeNote: "Legitimate seasonal layoff — expected pattern.", indicators: [] },
+      { claimId: "EI-2024-300205", programType: "EI", riskScore: 25, confidence: 0.9, recommendation: "PROCEED", processingTimeMs: 10, narrativeNote: "Legitimate seasonal layoff — expected pattern.", indicators: [] },
+      { claimId: "EI-2024-300206", programType: "EI", riskScore: 71, confidence: 0.87, recommendation: "INVESTIGATE", processingTimeMs: 16, narrativeNote: "ANOMALY: Low hours but maximum benefits claimed — pattern abuse.", indicators: [
+        { title: "Low Insurable Hours / High Benefit", category: "FINANCIAL", severity: "HIGH", source: "COMBINED", description: "Reported hours inconsistent with the benefit level requested.", confidence: 0.85 },
+        { title: "Repeat Seasonal Claimant", category: "BEHAVIORAL", severity: "MEDIUM", source: "ML", description: "Filing cadence matches a serial seasonal abuse signature.", confidence: 0.8 }
+      ] },
+      { claimId: "EI-2024-300207", programType: "EI", riskScore: 19, confidence: 0.93, recommendation: "PROCEED", processingTimeMs: 9, narrativeNote: "Legitimate seasonal layoff — expected pattern.", indicators: [] },
+      { claimId: "EI-2024-300208", programType: "EI", riskScore: 77, confidence: 0.9, recommendation: "INVESTIGATE", processingTimeMs: 18, narrativeNote: "ANOMALY: Low hours but maximum benefits claimed — pattern abuse.", indicators: [
+        { title: "Low Insurable Hours / High Benefit", category: "FINANCIAL", severity: "HIGH", source: "COMBINED", description: "Minimal qualifying hours paired with peak benefit request.", confidence: 0.89 },
+        { title: "Repeat Seasonal Claimant", category: "BEHAVIORAL", severity: "MEDIUM", source: "ML", description: "Repeated identical seasonal claims across years.", confidence: 0.82 }
+      ] }
+    ]
+  },
+
+  "cross-program": {
+    id: "cross-program",
+    name: "Cross-Program Contradiction",
+    description: "Shows the AI detecting contradictory claims across programs: the same individual filing for EI (available and seeking work) while simultaneously applying for CPP disability (unable to work).",
+    talkingPoints: [
+      "Each claim looked normal in isolation — the fraud is only visible cross-program",
+      "The AI correlates identity across EI, OAS, and CPP in real-time",
+      "Contradictory eligibility criteria are automatically detected: \"seeking work\" vs \"unable to work\"",
+      "This is the power of a unified detection service spanning multiple programs",
+      "Without integration, these contradictions go unnoticed for months or years"
+    ],
+    assessments: [
+      { claimId: "EI-2024-400301", programType: "EI", riskScore: 22, confidence: 0.91, recommendation: "PROCEED", processingTimeMs: 9, narrativeNote: "Initial EI claim appears normal on its own.", indicators: [] },
+      { claimId: "OAS-2024-400302", programType: "OAS", riskScore: 20, confidence: 0.92, recommendation: "PROCEED", processingTimeMs: 7, narrativeNote: "Background OAS application — clean, unrelated identity.", indicators: [] },
+      { claimId: "OAS-2024-400303", programType: "OAS", riskScore: 42, confidence: 0.83, recommendation: "FLAG_FOR_REVIEW", processingTimeMs: 15, narrativeNote: "Residency shortfall flagged on OAS application.", indicators: [
+        { title: "Residency Corroboration Shortfall", category: "IDENTITY", severity: "HIGH", source: "COMBINED", description: "Corroborated residency of 12 years is short of the 38 declared years in Canada — possible residency misrepresentation.", confidence: 0.84 }
+      ] },
+      { claimId: "OAS-2024-400304", programType: "OAS", riskScore: 48, confidence: 0.85, recommendation: "FLAG_FOR_REVIEW", processingTimeMs: 16, narrativeNote: "OAS application from same identity — collecting EI and applying for OAS pension simultaneously.", indicators: [
+        { title: "Concurrent Program Enrollment", category: "ELIGIBILITY", severity: "MEDIUM", source: "RULE", description: "Same identity is actively collecting EI while applying for an OAS pension in the same period.", confidence: 0.85 }
+      ] },
+      { claimId: "CPP-2024-400305", programType: "CPP", riskScore: 92, confidence: 0.96, recommendation: "ESCALATE", processingTimeMs: 23, narrativeNote: "CRITICAL: Same person claiming EI (able to work, seeking employment) AND CPP disability (unable to work) — contradictory claims.", indicators: [
+        { title: "Eligibility Contradiction: Seeking Work vs Unable to Work", category: "ELIGIBILITY", severity: "CRITICAL", source: "COMBINED", description: "EI claim asserts availability and active job search while the CPP disability claim asserts total inability to work.", confidence: 0.96 },
+        { title: "Cross-Program Identity Match", category: "IDENTITY", severity: "HIGH", source: "RULE", description: "Verified identity match links the EI and CPP disability filings to one individual.", confidence: 0.93 }
+      ] },
+      { claimId: "EI-2024-400306", programType: "EI", riskScore: 16, confidence: 0.94, recommendation: "PROCEED", processingTimeMs: 8, narrativeNote: "Background noise claim — legitimate, unrelated.", indicators: [] }
+    ]
+  },
+
+  "progressive-escalation": {
+    id: "progressive-escalation",
+    name: "Progressive Threat Escalation",
+    description: "Simulates a gradually increasing threat level over time. Starts with all clean claims and progressively introduces more anomalies, showing how the system adapts and alerts scale appropriately.",
+    talkingPoints: [
+      "Watch the risk distribution shift from green to red as the threat landscape changes",
+      "The system detects the trend — alert volume is increasing, which itself is an indicator",
+      "Investigators get early warning: \"anomaly rate is 3x baseline in the last hour\"",
+      "Demonstrates that the AI does not just score individually — it sees population patterns",
+      "This mirrors real fraud campaigns that start small and escalate"
+    ],
+    assessments: [
+      { claimId: "EI-2024-500401", programType: "EI", riskScore: 14, confidence: 0.95, recommendation: "PROCEED", processingTimeMs: 8, narrativeNote: "Normal claim — system correctly identifies as low risk.", indicators: [] },
+      { claimId: "OAS-2024-500402", programType: "OAS", riskScore: 19, confidence: 0.93, recommendation: "PROCEED", processingTimeMs: 7, narrativeNote: "Normal claim — system correctly identifies as low risk.", indicators: [] },
+      { claimId: "OAS-2024-500403", programType: "OAS", riskScore: 42, confidence: 0.83, recommendation: "FLAG_FOR_REVIEW", processingTimeMs: 14, narrativeNote: "Escalation phase: anomalous claim — risk landscape shifting.", indicators: [
+        { title: "Residency Corroboration Shortfall", category: "IDENTITY", severity: "HIGH", source: "COMBINED", description: "Corroborated residency of 12 years is short of the 38 declared years in Canada — possible residency misrepresentation.", confidence: 0.83 }
+      ] },
+      { claimId: "CPP-2024-500404", programType: "CPP", riskScore: 21, confidence: 0.91, recommendation: "PROCEED", processingTimeMs: 9, narrativeNote: "Normal claim — system correctly identifies as low risk.", indicators: [] },
+      { claimId: "EI-2024-500405", programType: "EI", riskScore: 52, confidence: 0.83, recommendation: "FLAG_FOR_REVIEW", processingTimeMs: 15, narrativeNote: "Escalation phase: anomalous claim — risk landscape shifting.", indicators: [
+        { title: "Unusual Filing Velocity", category: "BEHAVIORAL", severity: "MEDIUM", source: "ML", description: "Claim submitted within an emerging burst of correlated filings.", confidence: 0.8 }
+      ] },
+      { claimId: "EI-2024-500406", programType: "EI", riskScore: 72, confidence: 0.88, recommendation: "INVESTIGATE", processingTimeMs: 18, narrativeNote: "Escalation phase: anomalous claim — risk landscape shifting.", indicators: [
+        { title: "Emerging Cluster Membership", category: "BEHAVIORAL", severity: "HIGH", source: "COMBINED", description: "Claim aligns with a rapidly growing anomalous cluster — 3x baseline in the last hour.", confidence: 0.87 }
+      ] },
+      { claimId: "CPP-2024-500407", programType: "CPP", riskScore: 58, confidence: 0.84, recommendation: "FLAG_FOR_REVIEW", processingTimeMs: 16, narrativeNote: "Escalation phase: anomalous claim — risk landscape shifting.", indicators: [
+        { title: "Population Trend Anomaly", category: "BEHAVIORAL", severity: "MEDIUM", source: "ML", description: "Contributes to an above-baseline anomaly rate across the program.", confidence: 0.82 }
+      ] },
+      { claimId: "EI-2024-500408", programType: "EI", riskScore: 88, confidence: 0.94, recommendation: "ESCALATE", processingTimeMs: 21, narrativeNote: "Escalation phase: anomalous claim — risk landscape shifting.", indicators: [
+        { title: "Emerging Cluster Membership", category: "BEHAVIORAL", severity: "CRITICAL", source: "COMBINED", description: "Peak of the escalating campaign — high-confidence coordinated anomaly.", confidence: 0.94 },
+        { title: "Population Trend Anomaly", category: "BEHAVIORAL", severity: "HIGH", source: "ML", description: "Anomaly rate now sustained well above baseline — active campaign indicator.", confidence: 0.9 }
+      ] }
+    ]
+  }
+};
+
+// Normalize riskLevel from score for every assessment.
+Object.keys(SCENARIOS).forEach(function (sid) {
+  SCENARIOS[sid].assessments.forEach(function (a) {
+    a.riskLevel = levelFor(a.riskScore);
+  });
+});
+
+var SCENARIO_ORDER = ["clean-day", "identity-ring", "seasonal-spike", "cross-program", "progressive-escalation"];
+var TOUR_STEPS = SCENARIO_ORDER.map(function (id) { return id; });
+
+/* ============================================================
+   STATE
+   ============================================================ */
+var state = {
+  currentView: "live",
+  loadedScenarioId: "clean-day",
+  feed: [],
+  selectedAssessment: null,
+  playing: false,
+  playIndex: 0,
+  playTimer: null,
+  tourOpen: false,
+  tourStep: 0
+};
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+function esc(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function nowTime() {
+  var d = new Date();
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+function isAlert(a) {
+  return a.riskLevel === "HIGH" || a.riskLevel === "CRITICAL";
+}
+
+/* ============================================================
+   DASHBOARD FLOW
+   ============================================================ */
+function enterDemo() {
+  document.getElementById("landing").classList.add("hidden");
+  document.getElementById("dashboard").classList.add("visible");
+  buildScenarioButtons();
+  loadScenario("clean-day", false);
+}
+
+function setView(view) {
+  state.currentView = view;
+  var toggle = document.getElementById("viewToggle");
+  Array.prototype.forEach.call(toggle.querySelectorAll("button"), function (b) {
+    b.classList.toggle("active", b.getAttribute("data-view") === view);
+  });
+  document.getElementById("view-live").classList.toggle("hidden", view !== "live");
+  document.getElementById("view-analytics").classList.toggle("hidden", view !== "analytics");
+  document.getElementById("view-explainability").classList.toggle("hidden", view !== "explainability");
+  if (view === "analytics") renderAnalytics();
+  if (view === "explainability") renderExpList();
+}
+
+/* ---- Scenario buttons ---- */
+function buildScenarioButtons() {
+  var host = document.getElementById("scenarioButtons");
+  host.innerHTML = "";
+  SCENARIO_ORDER.forEach(function (id) {
+    var s = SCENARIOS[id];
+    var btn = document.createElement("button");
+    btn.className = "scenario-btn" + (id === state.loadedScenarioId ? " active" : "");
+    btn.setAttribute("data-scenario", id);
+    btn.innerHTML =
+      '<div class="s-name">' + esc(s.name) + "</div>" +
+      '<div class="s-desc">' + esc(shortDesc(id)) + "</div>";
+    btn.onclick = function () { loadScenario(id, false); };
+    host.appendChild(btn);
+  });
+}
+function shortDesc(id) {
+  var map = {
+    "clean-day": "Normal operations, no anomalies",
+    "identity-ring": "Correlated identity cluster across employers",
+    "seasonal-spike": "Volume spike with hidden anomalies",
+    "cross-program": "Same identity contradicting across EI/OAS/CPP",
+    "progressive-escalation": "Gradually increasing threat level"
+  };
+  return map[id];
+}
+function markActiveScenario() {
+  var host = document.getElementById("scenarioButtons");
+  Array.prototype.forEach.call(host.querySelectorAll(".scenario-btn"), function (b) {
+    b.classList.toggle("active", b.getAttribute("data-scenario") === state.loadedScenarioId);
+  });
+}
+
+/* ---- Load / play / pause / reset ---- */
+function loadScenario(id, autoplay) {
+  pauseFeed();
+  state.loadedScenarioId = id;
+  state.feed = [];
+  state.selectedAssessment = null;
+  state.playIndex = 0;
+  markActiveScenario();
+  renderFeed();
+  renderDetail();
+  renderSidebars();
+  renderExpList();
+  document.getElementById("simStatus").textContent = "Stopped";
+  if (autoplay) playFeed();
+}
+
+function playFeed() {
+  if (state.playing) return;
+  var scenario = SCENARIOS[state.loadedScenarioId];
+  if (!scenario) return;
+  if (state.playIndex >= scenario.assessments.length) return; // nothing left
+  state.playing = true;
+  document.getElementById("simStatus").textContent = "Running";
+  scheduleNext();
+}
+
+function scheduleNext() {
+  var scenario = SCENARIOS[state.loadedScenarioId];
+  if (!state.playing) return;
+  if (state.playIndex >= scenario.assessments.length) {
+    state.playing = false;
+    document.getElementById("simStatus").textContent = "Stopped";
+    return;
+  }
+  var interval = state.tourOpen ? (700 + Math.random() * 400) : (600 + Math.random() * 400);
+  state.playTimer = setTimeout(function () {
+    appendNext();
+    scheduleNext();
+  }, interval);
+}
+
+function appendNext() {
+  var scenario = SCENARIOS[state.loadedScenarioId];
+  if (state.playIndex >= scenario.assessments.length) return;
+  var src = scenario.assessments[state.playIndex];
+  state.playIndex++;
+  var a = Object.assign({}, src, { _time: nowTime(), _uid: state.loadedScenarioId + "-" + state.playIndex });
+  state.feed.push(a);
+  addFeedCard(a);
+  renderSidebars();
+  renderExpList();
+  // During tour, auto-select notable indicators so explainability updates in sync.
+  if (state.tourOpen && isAlert(a)) {
+    selectAssessment(a._uid);
+  }
+}
+
+function pauseFeed() {
+  state.playing = false;
+  if (state.playTimer) { clearTimeout(state.playTimer); state.playTimer = null; }
+  var el = document.getElementById("simStatus");
+  if (el) el.textContent = "Stopped";
+}
+
+function resetFeed() {
+  pauseFeed();
+  state.feed = [];
+  state.selectedAssessment = null;
+  state.playIndex = 0;
+  renderFeed();
+  renderDetail();
+  renderSidebars();
+  renderExpList();
+}
+
+/* ============================================================
+   RENDERING — FEED
+   ============================================================ */
+function renderFeed() {
+  var host = document.getElementById("feedList");
+  host.innerHTML = "";
+  if (state.feed.length === 0) {
+    host.innerHTML = '<div class="feed-empty">Select a scenario and press Start to begin real-time scoring.</div>';
+    updateFeedCounts();
+    return;
+  }
+  state.feed.forEach(function (a) {
+    host.appendChild(buildFeedCard(a, true));
+  });
+  updateFeedCounts();
+}
+
+function buildFeedCard(a, shownImmediately) {
+  var card = document.createElement("div");
+  card.className = "assessment-card" + (shownImmediately ? " shown" : "");
+  card.style.borderLeftColor = RISK_COLORS[a.riskLevel];
+  card.setAttribute("data-uid", a._uid);
+  if (state.selectedAssessment && state.selectedAssessment._uid === a._uid) {
+    card.classList.add("selected");
+  }
+  card.innerHTML =
+    '<div class="ac-top">' +
+      '<div class="ac-left">' +
+        '<span class="program-badge" style="background:' + PROGRAM_COLORS[a.programType] + '">' + esc(a.programType) + "</span>" +
+        '<span class="ac-claimid">' + esc(a.claimId) + "</span>" +
+      "</div>" +
+      '<span class="ac-score" style="color:' + RISK_COLORS[a.riskLevel] + '">' + a.riskScore + "</span>" +
+    "</div>" +
+    '<div class="ac-second">' +
+      '<span class="ac-level" style="color:' + RISK_COLORS[a.riskLevel] + '">' + a.riskLevel + "</span>" +
+      '<span class="ac-rec" style="color:' + REC_COLORS[a.recommendation] + '">' + esc(a.recommendation.replace(/_/g, " ")) + "</span>" +
+      '<span class="ac-time">' + esc(a._time) + "</span>" +
+    "</div>";
+  card.onclick = function () { selectAssessment(a._uid); };
+  return card;
+}
+
+function addFeedCard(a) {
+  var host = document.getElementById("feedList");
+  var empty = host.querySelector(".feed-empty");
+  if (empty) host.innerHTML = "";
+  var card = buildFeedCard(a, false);
+  host.appendChild(card);
+  // trigger animation
+  requestAnimationFrame(function () {
+    requestAnimationFrame(function () { card.classList.add("shown"); });
+  });
+  host.scrollTop = host.scrollHeight;
+  updateFeedCounts();
+}
+
+function updateFeedCounts() {
+  var total = state.feed.length;
+  var alerts = state.feed.filter(isAlert).length;
+  var fc = document.getElementById("feedCounts");
+  if (fc) fc.textContent = total + " total | " + alerts + " alerts";
+}
+
+/* ============================================================
+   RENDERING — SELECTION / DETAIL
+   ============================================================ */
+function selectAssessment(uid) {
+  var a = state.feed.filter(function (x) { return x._uid === uid; })[0];
+  if (!a) return;
+  state.selectedAssessment = a;
+  // update selection highlight in feed
+  Array.prototype.forEach.call(document.querySelectorAll("#feedList .assessment-card"), function (c) {
+    c.classList.toggle("selected", c.getAttribute("data-uid") === uid);
+  });
+  Array.prototype.forEach.call(document.querySelectorAll("#expList .exp-list-card"), function (c) {
+    c.classList.toggle("selected", c.getAttribute("data-uid") === uid);
+  });
+  renderDetail();
+}
+
+function detailHtml(a) {
+  if (!a) {
+    return '<div class="detail-empty">Select an assessment from the live feed to view AI-generated indicators and explanations</div>';
+  }
+  var indHtml = "";
+  if (!a.indicators || a.indicators.length === 0) {
+    indHtml = '<div class="no-indicators">No anomaly indicators — claim scored within normal bounds.</div>';
+  } else {
+    a.indicators.forEach(function (ind) {
+      indHtml +=
+        '<div class="indicator-card" style="border-left-color:' + RISK_COLORS[ind.severity] + '">' +
+          '<div class="ind-top">' +
+            '<span class="ind-title" style="color:' + RISK_COLORS[ind.severity] + '">' + esc(ind.title) + "</span>" +
+            '<span class="ind-source">' + esc(ind.source) + "</span>" +
+          "</div>" +
+          '<div class="ind-desc">' + esc(ind.description) + "</div>" +
+          '<div class="ind-bottom">' +
+            "<span>Category: " + esc(ind.category) + "</span>" +
+            "<span>Confidence: " + Math.round(ind.confidence * 100) + "%</span>" +
+          "</div>" +
+        "</div>";
+    });
+  }
+
+  return "" +
+    '<div class="detail-field"><div class="detail-label">Claim ID</div><div class="detail-value">' + esc(a.claimId) + "</div></div>" +
+    '<div class="detail-field"><div class="detail-label">Program</div>' +
+      '<span class="program-badge" style="background:' + PROGRAM_COLORS[a.programType] + '">' + esc(a.programType) + "</span></div>" +
+    '<div class="detail-field"><div class="detail-label">Risk Score</div>' +
+      '<div class="detail-score" style="color:' + RISK_COLORS[a.riskLevel] + '">' + a.riskScore + "</div>" +
+      '<div class="detail-conf">Confidence: ' + Math.round(a.confidence * 100) + "%</div></div>" +
+    '<div class="detail-field"><div class="detail-label">Recommendation</div>' +
+      '<div class="detail-rec" style="color:' + REC_COLORS[a.recommendation] + '">' + esc(a.recommendation.replace(/_/g, " ")) + "</div></div>" +
+    '<div class="detail-field"><div class="detail-label">Processing Time</div><div class="detail-value">' + a.processingTimeMs + "ms</div></div>" +
+    (a.narrativeNote ? '<div class="detail-field"><div class="detail-label">Assessment Note</div><div class="detail-value" style="font-size:12px;color:var(--text-dim);line-height:1.5;">' + esc(a.narrativeNote) + "</div></div>" : "") +
+    '<div class="detail-divider">' +
+      '<div class="indicators-title">Indicators (' + (a.indicators ? a.indicators.length : 0) + ")</div>" +
+      indHtml +
+    "</div>";
+}
+
+function renderDetail() {
+  var html = detailHtml(state.selectedAssessment);
+  document.getElementById("detailPanel").innerHTML = html;
+  document.getElementById("detailPanelExp").innerHTML = html;
+}
+
+/* ============================================================
+   RENDERING — SIDEBARS (risk dist, program, sim status, header)
+   ============================================================ */
+function computeCounts() {
+  var risk = { LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 0 };
+  var prog = { EI: 0, OAS: 0, CPP: 0 };
+  var totalTime = 0;
+  state.feed.forEach(function (a) {
+    risk[a.riskLevel]++;
+    prog[a.programType]++;
+    totalTime += a.processingTimeMs;
+  });
+  return { risk: risk, prog: prog, total: state.feed.length, totalTime: totalTime };
+}
+
+function renderSidebars() {
+  var c = computeCounts();
+
+  // Risk distribution
+  var rd = document.getElementById("riskDistribution");
+  rd.innerHTML = "";
+  ["LOW", "MEDIUM", "HIGH", "CRITICAL"].forEach(function (lvl) {
+    var count = c.risk[lvl];
+    var pct = c.total ? Math.round((count / c.total) * 100) : 0;
+    var row = document.createElement("div");
+    row.className = "risk-row";
+    row.innerHTML =
+      '<div class="r-head">' +
+        '<span class="r-dot" style="background:' + RISK_COLORS[lvl] + '"></span>' +
+        '<span class="r-label">' + lvl + "</span>" +
+        '<span class="r-count">' + count + "</span>" +
+      "</div>" +
+      '<div class="bar-track"><div class="bar-fill" style="width:' + pct + "%;background:" + RISK_COLORS[lvl] + '"></div></div>';
+    rd.appendChild(row);
+  });
+
+  // Program breakdown
+  var pb = document.getElementById("programBreakdown");
+  pb.innerHTML = "";
+  ["EI", "OAS", "CPP"].forEach(function (p) {
+    var row = document.createElement("div");
+    row.className = "prog-row";
+    row.innerHTML =
+      '<span class="prog-square" style="background:' + PROGRAM_COLORS[p] + '"></span>' +
+      '<span class="p-label">' + p + "</span>" +
+      '<span class="p-count">' + c.prog[p] + "</span>";
+    pb.appendChild(row);
+  });
+
+  // Sim status
+  document.getElementById("simGenerated").textContent = c.total;
+  document.getElementById("simEI").textContent = c.prog.EI;
+  document.getElementById("simOAS").textContent = c.prog.OAS;
+  document.getElementById("simCPP").textContent = c.prog.CPP;
+
+  // Header counter
+  var avg = c.total ? Math.round(c.totalTime / c.total) : 12;
+  document.getElementById("headerCounter").textContent = c.total + " assessments | Avg " + avg + "ms";
+
+  updateFeedCounts();
+}
+
+/* ============================================================
+   RENDERING — ANALYTICS VIEW
+   ============================================================ */
+function renderAnalytics() {
+  var c = computeCounts();
+
+  var riskHost = document.getElementById("analyticsRisk");
+  riskHost.innerHTML = "";
+  var maxRisk = Math.max(1, c.risk.LOW, c.risk.MEDIUM, c.risk.HIGH, c.risk.CRITICAL);
+  ["LOW", "MEDIUM", "HIGH", "CRITICAL"].forEach(function (lvl) {
+    var count = c.risk[lvl];
+    var pct = Math.round((count / maxRisk) * 100);
+    var row = document.createElement("div");
+    row.className = "analytics-bar-row";
+    row.innerHTML =
+      '<span class="lbl">' + lvl + "</span>" +
+      '<span class="track"><span class="fill" style="width:' + pct + "%;background:" + RISK_COLORS[lvl] + '"></span></span>' +
+      '<span class="cnt">' + count + "</span>";
+    riskHost.appendChild(row);
+  });
+
+  var progHost = document.getElementById("analyticsProgram");
+  progHost.innerHTML = "";
+  var maxProg = Math.max(1, c.prog.EI, c.prog.OAS, c.prog.CPP);
+  ["EI", "OAS", "CPP"].forEach(function (p) {
+    var count = c.prog[p];
+    var pct = Math.round((count / maxProg) * 100);
+    var row = document.createElement("div");
+    row.className = "analytics-bar-row";
+    row.innerHTML =
+      '<span class="lbl">' + p + "</span>" +
+      '<span class="track"><span class="fill" style="width:' + pct + "%;background:" + PROGRAM_COLORS[p] + '"></span></span>' +
+      '<span class="cnt">' + count + "</span>";
+    progHost.appendChild(row);
+  });
+
+  var alerts = state.feed.filter(isAlert).length;
+  var avg = c.total ? Math.round(c.totalTime / c.total) : 0;
+  var tp = document.getElementById("analyticsThroughput");
+  tp.innerHTML =
+    '<div class="stat-box"><div class="num">' + c.total + '</div><div class="lbl">Total Assessments</div></div>' +
+    '<div class="stat-box"><div class="num">' + avg + 'ms</div><div class="lbl">Avg Processing Time</div></div>' +
+    '<div class="stat-box"><div class="num" style="color:var(--risk-critical)">' + alerts + '</div><div class="lbl">Alerts</div></div>';
+}
+
+/* ============================================================
+   RENDERING — EXPLAINABILITY LIST
+   ============================================================ */
+function renderExpList() {
+  var host = document.getElementById("expList");
+  if (!host) return;
+  host.innerHTML = "";
+  if (state.feed.length === 0) {
+    host.innerHTML = '<div class="feed-empty">No assessments loaded yet.</div>';
+    return;
+  }
+  state.feed.forEach(function (a) {
+    var card = document.createElement("div");
+    card.className = "exp-list-card" + (state.selectedAssessment && state.selectedAssessment._uid === a._uid ? " selected" : "");
+    card.style.borderLeftColor = RISK_COLORS[a.riskLevel];
+    card.setAttribute("data-uid", a._uid);
+    card.innerHTML =
+      '<span class="program-badge" style="background:' + PROGRAM_COLORS[a.programType] + '">' + esc(a.programType) + "</span>" +
+      '<span class="cid">' + esc(a.claimId) + "</span>" +
+      '<span class="sc" style="color:' + RISK_COLORS[a.riskLevel] + '">' + a.riskScore + "</span>";
+    card.onclick = function () { selectAssessment(a._uid); };
+    host.appendChild(card);
+  });
+}
+
+/* ============================================================
+   (C) GUIDED TOUR STEPPER
+   ============================================================ */
+function tourStart() {
+  state.tourOpen = true;
+  state.tourStep = 0;
+  document.getElementById("tour").classList.add("visible");
+  setView("live");
+  renderTourStep();
+}
+
+function renderTourStep() {
+  var id = TOUR_STEPS[state.tourStep];
+  var s = SCENARIOS[id];
+  document.getElementById("tourCounter").textContent = "Step " + (state.tourStep + 1) + " of " + TOUR_STEPS.length;
+  document.getElementById("tourTitle").textContent = s.name;
+  document.getElementById("tourDesc").textContent = s.description;
+  var ul = document.getElementById("tourPoints");
+  ul.innerHTML = "";
+  s.talkingPoints.forEach(function (pt) {
+    var li = document.createElement("li");
+    li.textContent = pt;
+    ul.appendChild(li);
+  });
+  document.getElementById("tourBackBtn").disabled = state.tourStep === 0;
+  document.getElementById("tourNextBtn").textContent =
+    state.tourStep === TOUR_STEPS.length - 1 ? "Finish" : "Next";
+
+  // load + auto-play this scenario
+  loadScenario(id, true);
+}
+
+function tourNext() {
+  if (state.tourStep < TOUR_STEPS.length - 1) {
+    state.tourStep++;
+    renderTourStep();
+  } else {
+    tourClose();
+  }
+}
+
+function tourBack() {
+  if (state.tourStep > 0) {
+    state.tourStep--;
+    renderTourStep();
+  }
+}
+
+function tourClose() {
+  state.tourOpen = false;
+  pauseFeed();
+  document.getElementById("tour").classList.remove("visible");
+}
+
+/* ============================================================
+   INIT
+   ============================================================ */
+// Pre-build scenario buttons so they exist even before entering demo.
+document.addEventListener("DOMContentLoaded", function () {
+  buildScenarioButtons();
+  renderSidebars();
+});
+</script>
+</body>
+</html>
