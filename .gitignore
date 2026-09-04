@@ -47,3 +47,6 @@ coverage/
 # Temporary
 tmp/
 temp/
+
+# Local core-services dev venv (Python 3.11 subset)
+.venv-core/
