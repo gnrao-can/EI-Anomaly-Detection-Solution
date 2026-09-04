@@ -241,24 +241,72 @@ PublishHook = Callable[[DispatchResult], Awaitable[None]]
 # ---------------------------------------------------------------------------
 
 
+def _build_engine_request(
+    claim_payload: dict[str, Any], roe_payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Build a detection engine's flat ``/engine/analyze`` request body.
+
+    Engines expect the flat ``AnalyzeRequest`` shape (``sin_hash`` required, plus
+    optional ``claim_id`` / ``employer_bn`` / ``insurable_hours`` /
+    ``economic_region_code`` / ``separation_date``), NOT a ``{claim, roe}``
+    envelope. We assemble those fields from the paired ``claim.received`` /
+    ``roe.received`` payloads, preferring the claim payload and falling back to
+    the ROE payload. Fields absent from both are simply omitted — they are
+    optional on the engine, which fetches history by ``sin_hash``.
+    """
+    merged: dict[str, Any] = {}
+    for src in (roe_payload, claim_payload):  # claim overrides roe on conflict
+        if isinstance(src, dict):
+            merged.update(src)
+
+    body: dict[str, Any] = {}
+    if merged.get("sin_hash") is not None:
+        body["sin_hash"] = merged["sin_hash"]
+    for field_name in (
+        "claim_id",
+        "employer_bn",
+        "insurable_hours",
+        "economic_region_code",
+        "separation_date",
+    ):
+        value = merged.get(field_name)
+        if value is not None:
+            body[field_name] = value
+    return body
+
+
+def _service_auth_headers() -> dict[str, str]:
+    """Bearer header for internal engine/scorer calls (Req 19.7).
+
+    Every EI-ADS API endpoint validates a GCKey Bearer token, so the
+    orchestrator presents its service credential (``ORCHESTRATOR_SERVICE_TOKEN``)
+    on internal calls. Absent in local/test environments, in which case no
+    header is sent and the callee's own dev/test configuration applies.
+    """
+    token = os.environ.get("ORCHESTRATOR_SERVICE_TOKEN")
+    return {"Authorization": f"Bearer {token}"} if token else {}
+
+
 async def _default_engine_caller(
     engine: EngineType,
     url: str,
     claim_payload: dict[str, Any],
     roe_payload: dict[str, Any],
 ) -> list:
-    """POST the claim+ROE payload to an engine's analyze endpoint via httpx.
+    """POST a claim to an engine's ``/engine/analyze`` endpoint via httpx.
 
-    The engine is expected to return a JSON body of the shape
-    ``{"indicators": [ ... ]}`` (a list of Indicator dicts) or a bare list. Each
-    element is decoded to an :class:`Indicator` when the shared model is present;
-    otherwise the raw dicts are returned unchanged.
+    Sends the engine's flat ``AnalyzeRequest`` body (built by
+    :func:`_build_engine_request`) with the orchestrator's service Bearer token
+    (Req 19.7). The engine returns ``{"indicators": [ ... ]}`` (or a bare list);
+    each element is decoded to an :class:`Indicator` when the shared model is
+    present, otherwise returned unchanged.
     """
     import httpx  # imported lazily so unit tests never require the network layer
 
-    body = {"claim": claim_payload, "roe": roe_payload}
+    body = _build_engine_request(claim_payload, roe_payload)
+    headers = _service_auth_headers()
     async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=body)
+        response = await client.post(url, json=body, headers=headers)
         response.raise_for_status()
         data = response.json()
 

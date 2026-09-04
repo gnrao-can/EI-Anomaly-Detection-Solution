@@ -205,7 +205,13 @@ class HttpxScorerCaller:
 
     async def __call__(self, body: dict[str, Any]) -> dict[str, Any]:
         client = await self._get_client()
-        response = await client.post(f"{self._base_url}{SCORE_PATH}", json=body)
+        # Present the orchestrator's service Bearer token on the internal scorer
+        # call (Req 19.7: every EI-ADS endpoint validates a GCKey Bearer token).
+        token = os.environ.get("ORCHESTRATOR_SERVICE_TOKEN")
+        headers = {"Authorization": f"Bearer {token}"} if token else None
+        response = await client.post(
+            f"{self._base_url}{SCORE_PATH}", json=body, headers=headers
+        )
         response.raise_for_status()
         return response.json()
 
