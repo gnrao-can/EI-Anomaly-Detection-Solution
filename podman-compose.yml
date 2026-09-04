@@ -1,0 +1,172 @@
+# ============================================================
+# EI-ADS Local Development — podman-compose.yml
+# Install: pip install podman-compose
+# Run:     podman-compose up -d
+# Stop:    podman-compose down
+#
+# All containers run rootless via Podman.
+# Credentials here are LOCAL DEVELOPMENT ONLY — never use in production.
+# ============================================================
+
+version: "3.9"
+
+services:
+
+  # ── Apache Kafka (via KRaft — no ZooKeeper) ───────────────
+  kafka:
+    # NOTE: bitnami/kafka:3.7.0 was removed from Docker Hub when Bitnami
+    # relocated its catalog (2025); the tag now returns "manifest unknown".
+    # bitnamilegacy/* preserves the old images and is a drop-in -- all the
+    # KAFKA_CFG_* env vars, the /bitnami/kafka volume path, and the
+    # kafka-topics.sh healthcheck below remain valid.
+    image: docker.io/bitnamilegacy/kafka:3.7.0
+    container_name: ei-ads-kafka
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      # KRaft mode — no ZooKeeper required
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "broker,controller"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      # Replication / durability (single-node dev values)
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_MIN_INSYNC_REPLICAS: "1"
+      KAFKA_CFG_NUM_PARTITIONS: "3"
+      # Log retention
+      KAFKA_CFG_LOG_RETENTION_HOURS: "168"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── Redis (single node for local dev; cluster in production) ─
+  redis:
+    image: docker.io/redis:7.4.1-alpine
+    container_name: ei-ads-redis
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # ── PostgreSQL ────────────────────────────────────────────
+  postgres:
+    image: docker.io/postgres:16.4-alpine
+    container_name: ei-ads-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: ei_ads
+      POSTGRES_USER: ei_ads_app
+      POSTGRES_PASSWORD: changeme_local_only
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ei_ads_app -d ei_ads"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+  # ── ClickHouse ────────────────────────────────────────────
+  clickhouse:
+    image: docker.io/clickhouse/clickhouse-server:24.11.1-alpine
+    container_name: ei-ads-clickhouse
+    ports:
+      - "8123:8123"   # HTTP interface
+      - "9000:9000"   # Native TCP interface
+    environment:
+      CLICKHOUSE_DB: ei_ads_analytics
+      CLICKHOUSE_USER: ei_ads_app
+      CLICKHOUSE_PASSWORD: changeme_local_only
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - clickhouse-logs:/var/log/clickhouse-server
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+
+  # ── Neo4j ─────────────────────────────────────────────────
+  neo4j:
+    image: docker.io/neo4j:5.26.0-community
+    container_name: ei-ads-neo4j
+    ports:
+      - "7474:7474"   # HTTP browser
+      - "7687:7687"   # Bolt protocol
+    environment:
+      NEO4J_AUTH: "neo4j/changeme_local_only"
+      NEO4J_PLUGINS: '["apoc"]'
+      NEO4J_dbms_security_procedures_unrestricted: "apoc.*"
+      NEO4J_dbms_memory_heap_initial__size: "512m"
+      NEO4J_dbms_memory_heap_max__size: "1G"
+      NEO4J_dbms_memory_pagecache_size: "512m"
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:7474 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  # ── OpenTelemetry Collector (distributed tracing — task 32.1 / Req 21.5) ─
+  # Receives OTLP spans from every EI-ADS service and exports them to the
+  # configured tracing backend. Services set OTEL_EXPORTER_OTLP_ENDPOINT to
+  # http://otel-collector:4317 (see shared/telemetry.py).
+  otel-collector:
+    image: docker.io/otel/opentelemetry-collector-contrib:0.116.1
+    container_name: ei-ads-otel-collector
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    ports:
+      - "4317:4317"   # OTLP gRPC receiver
+      - "4318:4318"   # OTLP HTTP receiver
+      - "13133:13133" # health_check extension
+    volumes:
+      - ./scripts/otel/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    # No healthcheck: the collector-contrib image is distroless (no shell,
+    # no wget), so a CMD-SHELL/wget probe can never execute and would flap the
+    # container to "unhealthy" despite it running correctly. The health_check
+    # extension still serves readiness on :13133 (mapped to the host) for
+    # external monitoring; readiness here is inferred from the running state.
+    restart: unless-stopped
+
+volumes:
+  kafka-data:
+  redis-data:
+  postgres-data:
+  clickhouse-data:
+  clickhouse-logs:
+  neo4j-data:
+  neo4j-logs:

@@ -1,0 +1,105 @@
+# ============================================================
+# EI-ADS Grafana / Prometheus alert rules (task 31.2 / Req 21.2, 21.3, 21.4, 21.6)
+#
+# Four alert rules from design "Alert rules" (design.md §Prometheus Metric
+# Definitions). All PromQL expressions reference the `ei_ads_*` application
+# metrics defined in shared/metrics.py (task 31.1):
+#
+#   * p99 latency        -> ei_ads_engine_latency_seconds (Histogram; *_bucket)
+#   * adapter error rate -> ei_ads_adapter_error_rate      (Gauge, 5-min window)
+#   * fraud detection    -> ei_ads_model_fraud_detection_rate (Gauge, 7-day roll)
+#   * baseline deviation -> ei_ads_model_fraud_detection_rate vs its 30-day avg
+#
+# Delivered as a Kubernetes ConfigMap so Grafana / the Prometheus rule loader
+# can mount and evaluate the rule group. The `groups:` document is standard
+# Prometheus alerting-rule syntax, which Grafana ingests natively.
+# ============================================================
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ei-ads-alert-rules
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: ei-ads-alerts
+    app.kubernetes.io/part-of: ei-ads
+    # Picked up by the Prometheus operator / rule reloader.
+    prometheus: ei-ads
+    role: alert-rules
+data:
+  ei-ads-alerts.yaml: |
+    groups:
+      - name: ei-ads.rules
+        rules:
+          # ── Rule 1: pipeline p99 end-to-end latency > 3 s (Req 17.6) ──
+          # p99 derived from the engine latency histogram buckets. Alerts within
+          # 60 s (short `for:`) so operators see latency regressions quickly.
+          - alert: EiAdsP99LatencyHigh
+            expr: |
+              histogram_quantile(
+                0.99,
+                sum(rate(ei_ads_engine_latency_seconds_bucket[5m])) by (le)
+              ) > 3
+            for: 1m
+            labels:
+              severity: warning
+              service: ei-ads
+            annotations:
+              summary: "EI-ADS p99 latency above 3 s"
+              description: >-
+                p99 detection latency (ei_ads_engine_latency_seconds) has
+                exceeded the 3 s ceiling over the last 5 minutes.
+
+          # ── Rule 2: adapter error rate > 5% over 5 min (Req 21.3) ──
+          # ei_ads_adapter_error_rate is a gauge already computed over a
+          # trailing 5-minute window. `for: 1m` gives the required <60 s alert.
+          - alert: EiAdsAdapterErrorRateHigh
+            expr: ei_ads_adapter_error_rate > 0.05
+            for: 1m
+            labels:
+              severity: warning
+              service: ei-ads
+            annotations:
+              summary: "Adapter {{ $labels.adapter }} error rate above 5%"
+              description: >-
+                External data adapter {{ $labels.adapter }} reported an error
+                rate above 5% over the trailing 5-minute window.
+
+          # ── Rule 3: fraud detection rate < 80% (7-day rolling) -> P1 (Req 21.6) ──
+          # Model-drift signal: sustained low detection rate triggers a critical
+          # (P1) alert requiring immediate model review.
+          - alert: EiAdsFraudDetectionRateLow
+            expr: ei_ads_model_fraud_detection_rate < 0.80
+            for: 5m
+            labels:
+              severity: critical
+              priority: P1
+              service: ei-ads
+            annotations:
+              summary: "Fraud detection rate below 80% (P1)"
+              description: >-
+                Rolling 7-day fraud detection rate
+                (ei_ads_model_fraud_detection_rate) has dropped below 0.80,
+                indicating model drift. Immediate model review required.
+
+          # ── Rule 4: >10% deviation from 30-day rolling baseline (Req 21.2) ──
+          # Compares the current fraud detection rate to its own 30-day average
+          # and alerts when the relative deviation exceeds 10% in either
+          # direction.
+          - alert: EiAdsFraudDetectionRateBaselineDeviation
+            expr: |
+              abs(
+                ei_ads_model_fraud_detection_rate
+                - avg_over_time(ei_ads_model_fraud_detection_rate[30d])
+              )
+              / avg_over_time(ei_ads_model_fraud_detection_rate[30d])
+              > 0.10
+            for: 5m
+            labels:
+              severity: warning
+              service: ei-ads
+            annotations:
+              summary: "Fraud detection rate deviates >10% from 30-day baseline"
+              description: >-
+                ei_ads_model_fraud_detection_rate deviates by more than 10% from
+                its 30-day rolling baseline, signalling a distribution shift.

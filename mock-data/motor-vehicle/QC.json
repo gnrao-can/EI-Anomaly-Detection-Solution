@@ -1,0 +1,15 @@
+{
+  "province": "QC",
+  "owned_ratio": 0.66,
+  "classes": ["PASSENGER", "MOTORCYCLE"],
+  "record": {
+    "vehicle_ownership_status": "OWNED",
+    "vehicle_class": "PASSENGER",
+    "vin": "SYNQC000009",
+    "vehicle_history": ["registered", "renewed", "transferred"],
+    "insurance_provider": "SAAQ",
+    "lien_balance": 9800.0,
+    "registered_owner_name": "Synthetic Owner QC",
+    "registration_expiry": "2026-11-11"
+  }
+}

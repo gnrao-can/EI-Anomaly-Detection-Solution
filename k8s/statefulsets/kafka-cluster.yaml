@@ -1,0 +1,201 @@
+# =============================================================================
+# EI-ADS Kafka Bus — StatefulSet + headless Service + PDB
+# =============================================================================
+# Topology: 6 brokers running in KRaft combined mode (controller + broker).
+# Cluster-wide defaults enforce default.replication.factor=3 and
+# min.insync.replicas=2 (Requirement 23.4) so, with acks=all producers, a write
+# is durable on >= 2 brokers and the loss of a single broker causes no message
+# loss. These defaults match scripts/kafka/topics.json (all 11 topics use
+# replication_factor=3, min_insync_replicas=2) and scripts/kafka/README.md.
+#
+# 6 brokers (RF=3) allow topic replicas to spread across distinct brokers with
+# headroom, and tolerate the loss of a broker while keeping min.insync.replicas
+# satisfiable.
+#
+# NOTE (sandbox): validated for YAML well-formedness only. NOT applied to a
+# live cluster (none available in the sandbox). Topics are provisioned
+# separately by scripts/kafka/create-topics.sh (KAFKA_ENV=prod) once the
+# brokers are Ready.
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kafka-cluster
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: kafka-cluster
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: event-bus
+spec:
+  serviceName: kafka-cluster-headless
+  replicas: 6
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-cluster
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: kafka-cluster
+        app.kubernetes.io/part-of: ei-ads
+        app.kubernetes.io/component: event-bus
+    spec:
+      # Spread brokers across hosts so replica sets survive a host failure.
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: kafka-cluster
+              topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        fsGroup: 1001
+      terminationGracePeriodSeconds: 120
+      containers:
+        - name: kafka
+          image: bitnami/kafka:3.7
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: client
+              containerPort: 9092
+            - name: controller
+              containerPort: 9093
+            - name: internal
+              containerPort: 9094
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            # --- KRaft combined-mode identity -------------------------------
+            # Broker id is derived from the StatefulSet ordinal by the
+            # entrypoint below (kafka-cluster-<ordinal>).
+            - name: KAFKA_ENABLE_KRAFT
+              value: "yes"
+            - name: KAFKA_CFG_PROCESS_ROLES
+              value: "controller,broker"
+            - name: KAFKA_CFG_CONTROLLER_LISTENER_NAMES
+              value: "CONTROLLER"
+            # 6 controller voters, one per broker ordinal 0..5.
+            - name: KAFKA_CFG_CONTROLLER_QUORUM_VOTERS
+              value: "0@kafka-cluster-0.kafka-cluster-headless.ei-ads.svc.cluster.local:9093,1@kafka-cluster-1.kafka-cluster-headless.ei-ads.svc.cluster.local:9093,2@kafka-cluster-2.kafka-cluster-headless.ei-ads.svc.cluster.local:9093,3@kafka-cluster-3.kafka-cluster-headless.ei-ads.svc.cluster.local:9093,4@kafka-cluster-4.kafka-cluster-headless.ei-ads.svc.cluster.local:9093,5@kafka-cluster-5.kafka-cluster-headless.ei-ads.svc.cluster.local:9093"
+            # --- Listeners --------------------------------------------------
+            - name: KAFKA_CFG_LISTENERS
+              value: "CLIENT://:9092,CONTROLLER://:9093,INTERNAL://:9094"
+            - name: KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP
+              value: "CLIENT:PLAINTEXT,CONTROLLER:PLAINTEXT,INTERNAL:PLAINTEXT"
+            - name: KAFKA_CFG_INTER_BROKER_LISTENER_NAME
+              value: "INTERNAL"
+            - name: KAFKA_CFG_ADVERTISED_LISTENERS
+              value: "CLIENT://$(POD_NAME).kafka-cluster-headless.ei-ads.svc.cluster.local:9092,INTERNAL://$(POD_NAME).kafka-cluster-headless.ei-ads.svc.cluster.local:9094"
+            # --- Durability defaults (Requirement 23.4) ---------------------
+            - name: KAFKA_CFG_DEFAULT_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_CFG_MIN_INSYNC_REPLICAS
+              value: "2"
+            - name: KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR
+              value: "3"
+            - name: KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR
+              value: "2"
+            - name: KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE
+              value: "false"
+            - name: KAFKA_KRAFT_CLUSTER_ID
+              valueFrom:
+                secretKeyRef:
+                  name: kafka-cluster-id
+                  key: KAFKA_KRAFT_CLUSTER_ID
+          resources:
+            requests:
+              cpu: "1"
+              memory: 4Gi
+            limits:
+              cpu: "2"
+              memory: 8Gi
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /bitnami/kafka
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 100Gi
+---
+# Headless Service — stable per-broker DNS for KRaft quorum + inter-broker.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-cluster-headless
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: kafka-cluster
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: kafka-cluster
+  ports:
+    - name: client
+      port: 9092
+      targetPort: client
+    - name: controller
+      port: 9093
+      targetPort: controller
+    - name: internal
+      port: 9094
+      targetPort: internal
+---
+# Client-facing bootstrap Service — producers/consumers connect here.
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-cluster
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: kafka-cluster
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: kafka-cluster
+  ports:
+    - name: client
+      port: 9092
+      targetPort: client
+---
+# PodDisruptionBudget — evict at most 1 broker at a time so RF=3 topics keep
+# >= 2 in-sync replicas (satisfies min.insync.replicas=2) during maintenance.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: kafka-cluster
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: kafka-cluster
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: kafka-cluster

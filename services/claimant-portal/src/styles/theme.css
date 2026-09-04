@@ -1,0 +1,126 @@
+/*
+ * Design tokens for the EI-ADS portal.
+ *
+ * Two palettes are defined:
+ *   - LIGHT (default, on :root) — the claimant-facing "navy / amber" theme
+ *     drawn from demo/ei-fraud-demo.html. Used by the app shell, top nav, and
+ *     every claimant page (Home, Submit Claim, My Claims, claim status).
+ *   - DARK  — the investigator "Slate console" theme drawn from
+ *     demo/ads-dashboard-demo.html. Scoped to the dashboard routes by a
+ *     `[data-theme="dark"]` wrapper set in Layout.tsx.
+ *
+ * These are VISUAL tokens only. No behaviour, data, or copy from the demos is
+ * carried over. Colours chosen for text are checked against WCAG 2.1 AA
+ * (>= 4.5:1 for normal text); where a demo accent is too bright for text it is
+ * used only as a surface/border and paired with a dark foreground.
+ */
+
+:root {
+  /* ---- Light (claimant) palette — from ei-fraud-demo.html ---- */
+  --bg: #f8fafc;
+  --surface: #ffffff;
+  --surface-2: #f1f5f9;
+  --navy: #1e3a5f;
+  --navy-light: #2d5282;
+  --amber: #d97706;
+  --amber-hover: #b45309;
+  --amber-light: #fef3c7;
+  --green: #059669;
+  --green-light: #d1fae5;
+  --red: #dc2626;
+  --red-light: #fee2e2;
+  --orange: #ea580c;
+  --orange-light: #ffedd5;
+
+  --border: #e2e8f0;
+  --text: #1e293b;
+  --text-dim: #475569;
+  --text-muted: #64748b;
+  --heading: #0f172a;
+
+  /* Semantic surface roles reused by shared components. */
+  --app-bg: var(--bg);
+  --panel-bg: var(--surface);
+  --panel-border: var(--border);
+  --panel-radius: 12px;
+  --panel-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+
+  /* Interactive accents. */
+  --link: var(--navy-light);
+  --focus-ring: #2563eb;
+
+  /* Primary call-to-action button (amber on light).
+     The demo uses white text on #d97706, but that pair is only 3.19:1 — below
+     WCAG AA (4.5:1) for normal-size button text. We keep the amber identity but
+     use the demo's deeper amber (#b45309, 5.02:1 with white) for the resting
+     background so the label meets AA. #d97706 is retained as --amber for
+     accents/borders where it is not carrying text. */
+  --btn-primary-bg: #b45309;
+  --btn-primary-bg-hover: #92400e;
+  --btn-primary-fg: #ffffff;
+
+  /* Top nav (navy bar with light text). */
+  --nav-bg: var(--navy);
+  --nav-fg: #ffffff;
+  --nav-fg-dim: rgba(255, 255, 255, 0.8);
+  --nav-hover-bg: rgba(255, 255, 255, 0.15);
+
+  /* Section titles (dashboard-style eyebrow labels). */
+  --section-title-color: var(--text-muted);
+
+  /* Table surfaces. */
+  --table-header-bg: var(--surface-2);
+  --table-border: var(--border);
+  --table-row-hover: var(--surface-2);
+
+  /* Chart palette (SHAP recharts axes/text on the active surface). */
+  --chart-axis: var(--text-dim);
+  --chart-grid: var(--border);
+
+  --font-sans: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/*
+ * Dark (investigator "Slate console") palette — from ads-dashboard-demo.html.
+ * Applied to a wrapper carrying data-theme="dark" (set for /dashboard routes).
+ */
+[data-theme='dark'] {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #0f172a;
+  --border: #334155;
+  --text: #e2e8f0;
+  --text-dim: #94a3b8;
+  --text-muted: #64748b;
+  --heading: #f8fafc;
+
+  /* Risk colours from the console theme. Used as surfaces/borders; text on top
+     of them uses a dark foreground where the accent is too bright for AA. */
+  --risk-low: #22c55e;
+  --risk-medium: #f59e0b;
+  --risk-high: #f97316;
+  --risk-critical: #ef4444;
+
+  --app-bg: var(--bg);
+  --panel-bg: var(--surface);
+  --panel-border: var(--border);
+  --panel-radius: 8px;
+  --panel-shadow: none;
+
+  --link: #7dd3fc;
+  --focus-ring: #7dd3fc;
+
+  /* On dark, the primary button uses the console's blue accent. */
+  --btn-primary-bg: #3b82f6;
+  --btn-primary-bg-hover: #2563eb;
+  --btn-primary-fg: #ffffff;
+
+  --section-title-color: var(--text-dim);
+
+  --table-header-bg: #0f172a;
+  --table-border: var(--border);
+  --table-row-hover: #14213b;
+
+  --chart-axis: #94a3b8;
+  --chart-grid: #334155;
+}

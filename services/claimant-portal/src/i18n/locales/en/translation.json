@@ -1,0 +1,248 @@
+{
+  "app": {
+    "title": "Employment Insurance Portal",
+    "loading": "Loading…"
+  },
+  "language": {
+    "label": "Language",
+    "en": "English",
+    "fr": "Français",
+    "switchToFrench": "Français",
+    "switchToEnglish": "English"
+  },
+  "nav": {
+    "home": "Home",
+    "submitClaim": "Submit a claim",
+    "myClaims": "My claims",
+    "dashboard": "Investigator dashboard",
+    "signIn": "Sign in with GCKey",
+    "signOut": "Sign out"
+  },
+  "auth": {
+    "signInPrompt": "You must sign in with GCKey to continue.",
+    "signingIn": "Redirecting to GCKey…",
+    "processingCallback": "Completing sign-in…",
+    "callbackError": "Sign-in could not be completed. Please try again.",
+    "stateMismatch": "The sign-in request could not be verified. For your security, please sign in again.",
+    "sessionExpired": "Your session has expired. Please sign in again."
+  },
+  "authz": {
+    "forbiddenTitle": "Access denied",
+    "forbiddenMessage": "You do not have permission to view this page."
+  },
+  "dashboard": {
+    "flaggedClaims": {
+      "title": "Flagged claims",
+      "caption": "Claims flagged for review or investigation, sorted by risk score from highest to lowest.",
+      "empty": "There are no flagged claims to review.",
+      "loadError": "The flagged claims could not be loaded. Please try again."
+    },
+    "column": {
+      "riskScore": "Risk score",
+      "decision": "Decision",
+      "claimant": "Claimant",
+      "employerBn": "Employer BN",
+      "receivedAt": "Received",
+      "actions": "Actions"
+    },
+    "decision": {
+      "flagForReview": "Flag for review",
+      "investigate": "Investigate"
+    },
+    "action": {
+      "review": "Review case"
+    },
+    "stream": {
+      "live": "Live updates on",
+      "connecting": "Connecting to live updates…",
+      "offline": "Live updates unavailable"
+    }
+  },
+  "investigator": {
+    "detail": {
+      "title": "Claim investigation",
+      "claimId": "Claim number",
+      "riskScore": "Risk score",
+      "riskDecision": "Risk decision",
+      "employerBn": "Employer BN",
+      "claimant": "Claimant",
+      "explanation": "Explanation",
+      "explanationPending": "No explanation is available for this claim.",
+      "notFound": "This flagged claim could not be found.",
+      "loadError": "The claim details could not be loaded. {{message}}",
+      "retry": "Try again"
+    },
+    "decision": {
+      "AUTO_APPROVE": "Auto-approve",
+      "FLAG_FOR_REVIEW": "Flag for review",
+      "INVESTIGATE": "Investigate",
+      "INDETERMINATE": "Indeterminate"
+    },
+    "severity": {
+      "CRITICAL": "Critical",
+      "HIGH": "High",
+      "MEDIUM": "Medium",
+      "LOW": "Low",
+      "UNRESOLVED": "Unresolved"
+    },
+    "indicators": {
+      "title": "Indicators",
+      "empty": "No indicators were produced for this claim.",
+      "severityPrefix": "Severity:"
+    },
+    "shap": {
+      "title": "SHAP feature attribution",
+      "description": "Bar chart of how each of the {{count}} indicators contributed to the risk score. Positive values increase risk; negative values decrease risk.",
+      "featureAxis": "Indicator",
+      "contributionAxis": "SHAP contribution to risk score",
+      "directionAxis": "Effect on risk",
+      "barLabel": "{{feature}}: contribution {{value}}",
+      "increasesRisk": "Increases risk",
+      "decreasesRisk": "Decreases risk",
+      "empty": "No SHAP attributions are available for this claim."
+    },
+    "disposition": {
+      "title": "Case disposition",
+      "legend": "Record your disposition for this claim",
+      "selectRequired": "Select a disposition before submitting.",
+      "notesLabel": "Case notes",
+      "submit": "Save disposition",
+      "submitting": "Saving…",
+      "success": "Disposition saved: {{disposition}}.",
+      "error": "The disposition could not be saved. {{message}}",
+      "option": {
+        "CONFIRMED_FRAUD": "Confirmed fraud",
+        "FALSE_POSITIVE": "False positive",
+        "NEEDS_FURTHER_REVIEW": "Needs further review"
+      }
+    }
+  },
+  "home": {
+    "heading": "Welcome to the Employment Insurance Portal",
+    "intro": "Submit and track your Employment Insurance claim securely."
+  },
+  "submitClaim": {
+    "heading": "Submit an Employment Insurance claim",
+    "intro": "Fields marked with an asterisk (*) are required.",
+    "submit": "Submit claim",
+    "submitting": "Submitting…",
+    "fields": {
+      "sin": {
+        "label": "Social Insurance Number (SIN)",
+        "hint": "Enter your 9-digit SIN. Spaces and dashes are allowed."
+      },
+      "employerBn": {
+        "label": "Employer Business Number (BN)",
+        "hint": "Enter the 9-digit BN, or the 15-character BN with program account (for example 123456789RT0001)."
+      },
+      "insurableHours": {
+        "label": "Insurable hours",
+        "hint": "Total insurable hours worked in your qualifying period."
+      },
+      "insurableEarnings": {
+        "label": "Insurable earnings",
+        "hint": "Total insurable earnings in Canadian dollars."
+      },
+      "separationDate": {
+        "label": "Separation date",
+        "hint": "The last day you worked, in year-month-day format. It cannot be in the future."
+      },
+      "separationReason": {
+        "label": "Reason for separation",
+        "hint": "Briefly describe why your employment ended."
+      },
+      "roeDocument": {
+        "label": "Record of Employment (ROE) document",
+        "hint": "Optional. Attach your ROE as a PDF, XML, or JSON file."
+      }
+    },
+    "errors": {
+      "generic": "This field is invalid. Please review your entry.",
+      "network": "We could not reach the service. Check your connection and try again.",
+      "server": "Your claim could not be submitted right now. Please try again later.",
+      "sin": {
+        "MISSING": "Enter your Social Insurance Number.",
+        "INVALID": "Enter a valid 9-digit SIN. It must pass the check-digit test and cannot start with 0."
+      },
+      "employerBn": {
+        "MISSING": "Enter the employer Business Number.",
+        "INVALID": "Enter a valid BN: 9 digits, or 9 digits plus a program code and 4-digit account."
+      },
+      "insurableHours": {
+        "MISSING": "Enter the total insurable hours worked.",
+        "INVALID": "Insurable hours must be a number greater than 0.",
+        "TOO_LARGE": "Insurable hours cannot exceed 3120 (60 hours per week over 52 weeks)."
+      },
+      "insurableEarnings": {
+        "MISSING": "Enter the total insurable earnings.",
+        "INVALID": "Insurable earnings must be a number greater than 0."
+      },
+      "separationDate": {
+        "MISSING": "Enter your separation date.",
+        "INVALID": "Enter a valid date in year-month-day format that is not in the future."
+      },
+      "separationReason": {
+        "MISSING": "Enter the reason for separation.",
+        "TOO_LARGE": "The reason for separation must be 1000 characters or fewer."
+      }
+    },
+    "errorSummary": {
+      "heading": "There is a problem"
+    },
+    "confirmation": {
+      "heading": "Claim submitted successfully",
+      "body": "Your claim has been received and is being processed. Keep your Claim ID for your records.",
+      "claimIdLabel": "Claim ID:"
+    }
+  },
+  "myClaims": {
+    "intro": "Enter your claim number to view its status.",
+    "claimIdLabel": "Claim number",
+    "claimIdRequired": "Enter a claim number to continue.",
+    "viewStatus": "View claim status"
+  },
+  "claimStatus": {
+    "heading": "Claim status",
+    "claimId": "Claim number",
+    "statusLabel": "Status",
+    "decisionLabel": "Decision",
+    "decisionPending": "Not yet available",
+    "explanationLabel": "Explanation",
+    "explanationPending": "An explanation will be available once your claim has been assessed.",
+    "notFound": "We could not find a claim with that number.",
+    "loadError": "Your claim status could not be loaded. {{message}}",
+    "retry": "Try again",
+    "status": {
+      "RECEIVED": "Received",
+      "PROCESSING": "Being processed",
+      "DECIDED": "Decision made",
+      "UNDER_REVIEW": "Under review",
+      "CLOSED": "Closed"
+    },
+    "decision": {
+      "AUTO_APPROVE": "Approved",
+      "FLAG_FOR_REVIEW": "Under review",
+      "INVESTIGATE": "Referred for investigation",
+      "INDETERMINATE": "Decision pending further information"
+    }
+  },
+  "privacy": {
+    "heading": "Your privacy rights",
+    "intro": "Under the Privacy Act you may request a copy of the personal information we hold about you, or ask that it be deleted.",
+    "accessButton": "Request my data",
+    "deleteButton": "Request deletion of my data",
+    "deleteConfirmHeading": "Confirm deletion request",
+    "deleteConfirmMessage": "This will request permanent deletion of your identifying information. This action cannot be undone. Do you want to continue?",
+    "deleteConfirmButton": "Yes, request deletion",
+    "deleteCancelButton": "Cancel",
+    "submitting": "Submitting your request…",
+    "accessSubmitted": "Your data access request was submitted. Reference: {{reference}}. We will respond within 30 days.",
+    "deleteSubmitted": "Your data deletion request was submitted. Reference: {{reference}}. We will respond within 30 days.",
+    "referencePending": "pending",
+    "error": "Your request could not be submitted. {{message}}"
+  },
+  "errors": {
+    "notFound": "Page not found",
+    "generic": "Something went wrong."
+  }
+}

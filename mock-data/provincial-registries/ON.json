@@ -1,0 +1,24 @@
+{
+  "jurisdiction": "ON",
+  "source": "Ontario Business Registry (mock fixture)",
+  "records": [
+    {
+      "bn": "900000001RT0001",
+      "legal_name": "Maple Ridge Logistics Inc.",
+      "jurisdiction": "ON",
+      "registration_date": "2015-06-05",
+      "corporate_status": "in good standing",
+      "registered_address": "150 Bay Street, Suite 900, Toronto, ON",
+      "registered_postal_code": "M5J 2J2"
+    },
+    {
+      "bn": "900000002RT0001",
+      "legal_name": "Northwind Shell Holdings Ltd.",
+      "jurisdiction": "ON",
+      "registration_date": "2024-02-20",
+      "corporate_status": "registered",
+      "registered_address": "88 Maple Street, Toronto, ON",
+      "registered_postal_code": "M4E 1B1"
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "province": "BC",
+  "description": "British Columbia travel profile. Profile-based (no explicit records) so the deterministic generator derives crossings from the sin_hash.",
+  "trips": 2,
+  "base_days": 14,
+  "port": "YVR"
+}

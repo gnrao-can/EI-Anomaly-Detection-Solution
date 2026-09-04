@@ -1,0 +1,542 @@
+/*
+ * Component & layout styles for the EI-ADS portal.
+ *
+ * Purely visual. Driven by the design tokens in theme.css so the same rules
+ * render the light claimant theme and, under a `[data-theme="dark"]` wrapper,
+ * the dark investigator "Slate console" theme. No behaviour or copy from the
+ * demos is reproduced here.
+ *
+ * Layered on top of accessibility.css — `.sr-only`, focus recipes, and the
+ * badge label rules there remain authoritative for accessibility.
+ */
+
+/* ----------------------------------------------------------------------- */
+/* Base / app shell                                                        */
+/* ----------------------------------------------------------------------- */
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: var(--font-sans);
+  background: var(--app-bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* The theme wrapper fills the viewport so the palette covers the whole app. */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: var(--app-bg);
+  color: var(--text);
+}
+
+h1,
+h2,
+h3 {
+  color: var(--heading);
+  line-height: 1.25;
+}
+
+a {
+  color: var(--link);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Skip link (visually hidden until focused) — keeps keyboard access clear */
+/* ----------------------------------------------------------------------- */
+
+.skip-link {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  z-index: 1000;
+  padding: 8px 16px;
+  background: var(--surface);
+  color: var(--link);
+  border: 2px solid var(--focus-ring);
+  border-radius: 0 0 6px 0;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.skip-link:focus {
+  left: 0;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Top navigation (navy bar)                                               */
+/* ----------------------------------------------------------------------- */
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--nav-bg);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+
+.app-nav {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  max-width: 1200px;
+  margin: 0 auto;
+  min-height: 56px;
+  padding: 0 24px;
+  flex-wrap: wrap;
+}
+
+.app-nav ul {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+}
+
+.app-nav ul li {
+  margin: 0;
+}
+
+.app-nav a {
+  display: inline-block;
+  padding: 6px 14px;
+  border-radius: 6px;
+  color: var(--nav-fg-dim);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.2s, color 0.2s;
+}
+
+.app-nav a:hover,
+.app-nav a:focus-visible {
+  background: var(--nav-hover-bg);
+  color: var(--nav-fg);
+}
+
+.app-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.app-nav-actions button {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  color: var(--nav-fg);
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.app-nav-actions button:hover,
+.app-nav-actions button:focus-visible {
+  background: var(--nav-hover-bg);
+  border-color: #fff;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Main content region                                                     */
+/* ----------------------------------------------------------------------- */
+
+.app-main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px 24px 48px;
+}
+
+.app-main > section {
+  margin-bottom: 24px;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Hero (Home page)                                                        */
+/* ----------------------------------------------------------------------- */
+
+.hero {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-light) 100%);
+  color: #fff;
+  border-radius: 16px;
+  padding: 48px 32px;
+  margin-bottom: 32px;
+}
+
+.hero h1 {
+  color: #fff;
+  font-size: 2rem;
+  font-weight: 800;
+  margin: 0 0 12px 0;
+}
+
+.hero p {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 1.1rem;
+  max-width: 640px;
+  margin: 0;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Panels / cards                                                          */
+/* ----------------------------------------------------------------------- */
+
+.panel,
+.card {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius);
+  padding: 16px;
+  box-shadow: var(--panel-shadow);
+}
+
+.card {
+  padding: 24px;
+}
+
+/* Dashboard-style eyebrow heading. */
+.section-title {
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--section-title-color);
+  margin: 0 0 12px 0;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Buttons                                                                 */
+/* ----------------------------------------------------------------------- */
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.app-main button {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  padding: 9px 18px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  transition: background 0.2s, border-color 0.2s, filter 0.2s;
+}
+
+.app-main button:hover:not(:disabled) {
+  filter: brightness(0.97);
+}
+
+.app-main button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Primary submit action — amber on light, blue accent on dark. */
+.app-main button[type='submit'],
+.btn-primary {
+  background: var(--btn-primary-bg);
+  color: var(--btn-primary-fg);
+  border: none;
+}
+
+.app-main button[type='submit']:hover:not(:disabled),
+.btn-primary:hover:not(:disabled) {
+  background: var(--btn-primary-bg-hover);
+  filter: none;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Forms (Submit Claim, My Claims, Disposition)                            */
+/* ----------------------------------------------------------------------- */
+
+.app-main form {
+  max-width: 640px;
+}
+
+.app-main form > div,
+.app-main .form-row,
+.app-main .radio-row {
+  margin-bottom: 16px;
+}
+
+.app-main label {
+  display: block;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.app-main .radio-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.app-main .radio-row label {
+  margin-bottom: 0;
+  font-weight: 500;
+}
+
+.app-main input[type='text'],
+.app-main input[type='number'],
+.app-main input[type='date'],
+.app-main input[type='file'],
+.app-main textarea {
+  width: 100%;
+  max-width: 100%;
+  padding: 9px 12px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+}
+
+.app-main textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+
+.app-main input:focus-visible,
+.app-main textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-color: var(--focus-ring);
+}
+
+.app-main input[aria-invalid='true'],
+.app-main textarea[aria-invalid='true'] {
+  border-color: var(--red);
+}
+
+.app-main fieldset {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 16px;
+  margin: 0 0 16px 0;
+}
+
+.app-main legend {
+  font-weight: 600;
+  color: var(--heading);
+  padding: 0 6px;
+}
+
+/* Hint text under form labels. */
+.app-main form p[id$='-hint'] {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  margin: 0 0 6px 0;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Tables (FlaggedClaimsList)                                              */
+/* ----------------------------------------------------------------------- */
+
+.app-main table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel-bg);
+  border: 1px solid var(--table-border);
+  border-radius: var(--panel-radius);
+  overflow: hidden;
+  font-size: 0.9rem;
+}
+
+.app-main thead th {
+  text-align: left;
+  background: var(--table-header-bg);
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.75rem;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--table-border);
+}
+
+.app-main tbody td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--table-border);
+  color: var(--text);
+}
+
+.app-main tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.app-main tbody tr:hover {
+  background: var(--table-row-hover);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Description lists (claim summary / claim status)                        */
+/* ----------------------------------------------------------------------- */
+
+.claim-summary,
+.claim-status dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 0 0 24px 0;
+}
+
+.claim-summary > div,
+.claim-status dl > div {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.claim-summary dt,
+.claim-status dt {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.claim-summary dd,
+.claim-status dd {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Indicator list (investigator detail)                                    */
+/* ----------------------------------------------------------------------- */
+
+.indicator-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.indicator-item {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-left: 4px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 8px;
+}
+
+/* Severity-coloured left border echoes the console's indicator cards. */
+.indicator-item:has(.severity-critical) {
+  border-left-color: var(--severity-critical-accent, #ef4444);
+}
+.indicator-item:has(.severity-high) {
+  border-left-color: var(--severity-high-accent, #f97316);
+}
+.indicator-item:has(.severity-medium) {
+  border-left-color: var(--severity-medium-accent, #f59e0b);
+}
+.indicator-item:has(.severity-low) {
+  border-left-color: var(--severity-low-accent, #22c55e);
+}
+.indicator-item:has(.severity-unresolved) {
+  border-left-color: var(--text-muted);
+}
+
+.indicator-title {
+  font-weight: 700;
+  color: var(--heading);
+}
+
+.indicator-explanation {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  margin: 6px 0 0 0;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Stream status pill (dashboard live-region)                             */
+/* ----------------------------------------------------------------------- */
+
+.stream-status {
+  display: inline-block;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin: 0 0 12px 0;
+}
+
+/* ----------------------------------------------------------------------- */
+/* SHAP chart wrapper — keep recharts text/axes legible on any surface     */
+/* ----------------------------------------------------------------------- */
+
+.app-main [role='img'] .recharts-text,
+.app-main [role='img'] .recharts-cartesian-axis-tick-value tspan,
+.app-main [role='img'] .recharts-label {
+  fill: var(--chart-axis);
+}
+
+.app-main [role='img'] .recharts-cartesian-axis-line,
+.app-main [role='img'] .recharts-cartesian-axis-tick-line {
+  stroke: var(--chart-grid);
+}
+
+/* ----------------------------------------------------------------------- */
+/* Privacy actions                                                         */
+/* ----------------------------------------------------------------------- */
+
+.privacy-actions__buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.privacy-actions__confirm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid var(--red);
+  border-radius: 8px;
+  background: var(--red-light);
+}
+
+[data-theme='dark'] .privacy-actions__confirm {
+  background: rgba(239, 68, 68, 0.12);
+}
+
+.privacy-actions__status:not(:empty) {
+  padding: 8px 0;
+  font-weight: 600;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Global focus visibility (kept explicit for keyboard users)              */
+/* ----------------------------------------------------------------------- */
+
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

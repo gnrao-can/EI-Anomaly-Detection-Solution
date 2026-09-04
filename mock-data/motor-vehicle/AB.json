@@ -1,0 +1,15 @@
+{
+  "province": "AB",
+  "owned_ratio": 0.80,
+  "classes": ["PASSENGER", "TRUCK"],
+  "record": {
+    "vehicle_ownership_status": "OWNED",
+    "vehicle_class": "TRUCK",
+    "vin": "SYNAB000001",
+    "vehicle_history": ["registered", "renewed", "renewed"],
+    "insurance_provider": "Alberta Mutual",
+    "lien_balance": 12500.0,
+    "registered_owner_name": "Synthetic Owner AB",
+    "registration_expiry": "2026-03-01"
+  }
+}

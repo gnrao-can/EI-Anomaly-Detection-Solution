@@ -1,0 +1,44 @@
+# ============================================================
+# EI-ADS OpenTelemetry Collector configuration (task 32.1 / Req 21.5)
+# Used by the otel-collector service in podman-compose.yml (local dev) and
+# mirrored by the ConfigMap in k8s/otel-collector.yaml (cluster).
+#
+# Receives OTLP spans from every EI-ADS service (shared/telemetry.py exports to
+# http://otel-collector:4317) and forwards them to the tracing backend.
+# ============================================================
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # Bound memory so a span burst never OOM-kills the collector.
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 512
+    spike_limit_mib: 128
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+exporters:
+  # Local dev: log a compact trace summary. Swap/add a real backend exporter
+  # (e.g. otlp -> Tempo/Jaeger) per environment.
+  debug:
+    verbosity: normal
+
+service:
+  extensions: [health_check]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]

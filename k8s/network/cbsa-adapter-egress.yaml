@@ -1,0 +1,73 @@
+---
+# CBSA Adapter — egress restricted to the CBSA Protected B secure channel only.
+# Requirements: 13.4 (CBSA_Adapter SHALL transmit data exclusively over the
+#   CBSA's Protected B secure channel), 19.2 (data minimisation).
+# Design: External Data Adapters — CBSA Adapter: "CBSA Protected B secure API
+#   (HTTPS, GC PKI certificates); mTLS with CBSA-issued client certificate;
+#   CBSA Protected B secure channel exclusively".
+#
+# Selector: app.kubernetes.io/name: cbsa-adapter (the project label convention
+#   used by the 36.1 Deployments and the services/cbsa-adapter/ service).
+#
+# Egress allowances:
+#   1. Intra-namespace pods (Redis cache for cbsa:travel:* keys, Kafka,
+#      orchestrator, ClickHouse audit sink) inside ei-ads-prod.
+#   2. DNS to kube-system.
+#   3. The CBSA Protected B secure channel ONLY, reached over HTTPS/mTLS 1.3
+#      (TCP 443). The channel egresses to a dedicated, restricted CIDR that
+#      represents the GC Protected B secure interconnect to CBSA — NOT the
+#      public internet. The CIDR is a placeholder that MUST be set to the actual
+#      CBSA Protected B channel endpoint range at deploy time and is deliberately
+#      NOT 0.0.0.0/0. The `except` block excludes RFC1918 / link-local ranges so
+#      the rule cannot be widened to reach arbitrary private infrastructure.
+#
+# Because these are the ONLY egress rules and no rule allows 0.0.0.0/0, all other
+# external egress (general public internet) is denied for the CBSA adapter.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cbsa-adapter-egress-protected-b-only
+  namespace: ei-ads-prod
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: network-policy
+    ei-ads/policy: cbsa-protected-b-egress
+  annotations:
+    # Placeholder CIDR — replace with the real CBSA Protected B channel range
+    # (e.g. the GC secure interconnect prefix) before applying to a cluster.
+    ei-ads/cbsa-protected-b-cidr: "198.103.0.0/16"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: ei-ads
+      app.kubernetes.io/name: cbsa-adapter
+  policyTypes:
+    - Egress
+  egress:
+    # (1) Intra-namespace services (Redis, Kafka, orchestrator, audit sink).
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ei-ads-prod
+    # (2) DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # (3) CBSA Protected B secure channel ONLY, HTTPS/mTLS 1.3 on TCP 443.
+    - to:
+        - ipBlock:
+            cidr: 198.103.0.0/16
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

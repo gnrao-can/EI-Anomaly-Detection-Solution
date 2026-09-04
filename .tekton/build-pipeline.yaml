@@ -1,0 +1,243 @@
+# EI-ADS OpenShift-native CI (Tekton).
+#
+# Equivalent to the GitHub Actions build-and-push job in
+# .github/workflows/ci.yml, for clusters that run OpenShift Pipelines (Tekton)
+# instead of GitHub Actions.
+#
+# The Pipeline:
+#   1. clones the repo (git-clone Task),
+#   2. fans out over the `services` param with a Tekton matrix so every service
+#      image builds in PARALLEL, one TaskRun per service,
+#   3. builds the SHA-tagged image and pushes it to the internal OpenShift
+#      registry (build-and-push Task, which shells out to the same
+#      scripts/build-images.sh + scripts/push-images.sh used by GitHub Actions).
+#
+# Any failed TaskRun fails its pipeline matrix task, which fails the whole
+# PipelineRun — mirroring fail-fast in the GitHub Actions matrix.
+#
+# Registry credentials come from a Secret referenced by the workspace/params:
+#   OCP_REGISTRY / OCP_USER / OCP_TOKEN  (see the PipelineRun example at the end).
+#
+# Requirements: 17.5
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: git-clone
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  description: >-
+    Clone the EI-ADS repository into the shared source workspace so downstream
+    tasks can build from the monorepo root.
+  params:
+    - name: url
+      type: string
+      description: Git repository URL to clone.
+    - name: revision
+      type: string
+      description: Git revision (branch, tag, or SHA) to check out.
+      default: main
+  workspaces:
+    - name: source
+      description: The workspace the repository is cloned into.
+  steps:
+    - name: clone
+      image: registry.access.redhat.com/ubi9/toolbox:latest
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        cd "$(workspaces.source.path)"
+        rm -rf ei-ads
+        git clone "$(params.url)" ei-ads
+        cd ei-ads
+        git checkout "$(params.revision)"
+        echo "Checked out $(params.revision) at $(git rev-parse --short HEAD)"
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: build-and-push
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  description: >-
+    Build a single service's SHA-tagged OCI image with Podman and push it to
+    the internal OpenShift registry. Scoped to one service via the `service`
+    param so the Pipeline can run these in parallel through a matrix.
+  params:
+    - name: service
+      type: string
+      description: Name of the service to build (matches services/<name>).
+    - name: image-prefix
+      type: string
+      description: Image namespace/prefix.
+      default: ei-ads
+    - name: registry
+      type: string
+      description: Internal OpenShift image registry host (OCP_REGISTRY).
+  workspaces:
+    - name: source
+      description: Workspace containing the cloned repository (under ei-ads/).
+    - name: registry-credentials
+      description: >-
+        Workspace projecting the registry Secret with OCP_USER and OCP_TOKEN
+        files used by scripts/push-images.sh for podman login.
+  steps:
+    - name: build
+      # Rootless-capable Podman image; the TaskRun must run with the SCC that
+      # allows nested container builds (see PipelineRun notes).
+      image: quay.io/podman/stable:latest
+      workingDir: $(workspaces.source.path)/ei-ads
+      env:
+        - name: IMAGE_PREFIX
+          value: $(params.image-prefix)
+        - name: SERVICES
+          value: $(params.service)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        chmod +x scripts/build-images.sh
+        scripts/build-images.sh
+    - name: push
+      image: quay.io/podman/stable:latest
+      workingDir: $(workspaces.source.path)/ei-ads
+      env:
+        - name: IMAGE_PREFIX
+          value: $(params.image-prefix)
+        - name: SERVICES
+          value: $(params.service)
+        - name: OCP_REGISTRY
+          value: $(params.registry)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        export OCP_USER="$(cat $(workspaces.registry-credentials.path)/OCP_USER)"
+        export OCP_TOKEN="$(cat $(workspaces.registry-credentials.path)/OCP_TOKEN)"
+        chmod +x scripts/push-images.sh
+        scripts/push-images.sh
+---
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: ei-ads-build-pipeline
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  description: >-
+    Clone EI-ADS, then build and push every service image in parallel via a
+    matrix over the `services` param. Any failed service build/push fails the
+    PipelineRun.
+  params:
+    - name: repo-url
+      type: string
+      description: Git repository URL.
+    - name: revision
+      type: string
+      description: Git revision to build.
+      default: main
+    - name: services
+      type: array
+      description: >-
+        List of service names to build. Each becomes a parallel TaskRun via the
+        matrix. Keep in sync with services/<name>/Containerfile.
+    - name: image-prefix
+      type: string
+      default: ei-ads
+    - name: registry
+      type: string
+      description: Internal OpenShift image registry host (OCP_REGISTRY).
+  workspaces:
+    - name: shared-source
+      description: Shared workspace the repo is cloned into and built from.
+    - name: registry-credentials
+      description: Workspace projecting the registry credentials Secret.
+  tasks:
+    - name: clone
+      taskRef:
+        name: git-clone
+      params:
+        - name: url
+          value: $(params.repo-url)
+        - name: revision
+          value: $(params.revision)
+      workspaces:
+        - name: source
+          workspace: shared-source
+    - name: build-and-push
+      runAfter:
+        - clone
+      taskRef:
+        name: build-and-push
+      # Matrix fan-out: one parallel TaskRun per service. A failure in any
+      # TaskRun fails this pipeline task and therefore the PipelineRun.
+      matrix:
+        params:
+          - name: service
+            value: $(params.services[*])
+      params:
+        - name: image-prefix
+          value: $(params.image-prefix)
+        - name: registry
+          value: $(params.registry)
+      workspaces:
+        - name: source
+          workspace: shared-source
+        - name: registry-credentials
+          workspace: registry-credentials
+---
+# Example PipelineRun. Apply with `oc create -f` (or via a Trigger) to launch a
+# build. The services array should list every service with a Containerfile.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: ei-ads-build-
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  pipelineRef:
+    name: ei-ads-build-pipeline
+  params:
+    - name: repo-url
+      value: https://github.com/your-org/ei-anomaly-detection-solution.git
+    - name: revision
+      value: main
+    - name: registry
+      value: image-registry.openshift-image-registry.svc:5000
+    - name: services
+      value:
+        - business-registry-adapter
+        - cbsa-adapter
+        - claim-intake
+        - claimant-portal
+        - cra-adapter
+        - document-forgery-engine
+        - ensemble-scorer
+        - explanation-engine
+        - fraud-ring-engine
+        - geographic-anomaly-engine
+        - geonames-adapter
+        - graph-service
+        - history-inconsistency-engine
+        - llm-service
+        - ml-engine
+        - mvr-adapter
+        - orchestrator
+        - pipeline-orchestrator
+        - regional-analysis-engine
+        - repetitive-pattern-engine
+        - roe-adapter
+        - roe-intake
+  workspaces:
+    - name: shared-source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi
+    - name: registry-credentials
+      secret:
+        # Secret must contain keys OCP_USER and OCP_TOKEN.
+        secretName: ocp-registry-credentials

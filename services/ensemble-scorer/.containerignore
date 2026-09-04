@@ -1,0 +1,45 @@
+# ============================================================
+# .containerignore — ensemble-scorer
+# Note: images are built from the MONOREPO ROOT (task 35.2). The
+# root .containerignore is authoritative for the shared context;
+# this per-service file documents and enforces the same exclusions
+# so the service can also be built stand-alone without leaking
+# tests, mock data, caches, or secrets into the image layers.
+# _Requirements: 17.5, 19.1_
+# ============================================================
+
+# Python artefacts
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+**/.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+
+# Test code — never in production images
+tests/
+**/tests/
+test_*.py
+*_test.py
+
+# Mock / dev data — never in production images
+mock-data/
+
+# Secrets and credentials — never in an image
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+# OS / editor noise
+.DS_Store
+**/.DS_Store
+Thumbs.db

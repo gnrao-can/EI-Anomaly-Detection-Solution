@@ -1,0 +1,15 @@
+{
+  "province": "ON",
+  "owned_ratio": 0.65,
+  "classes": ["PASSENGER", "COMMERCIAL"],
+  "record": {
+    "vehicle_ownership_status": "UNKNOWN",
+    "vehicle_class": null,
+    "vin": "SYNON000007",
+    "vehicle_history": ["registration_status_pending"],
+    "insurance_provider": "unknown",
+    "lien_balance": 0.0,
+    "registered_owner_name": "Synthetic Owner ON",
+    "registration_expiry": null
+  }
+}

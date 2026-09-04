@@ -1,0 +1,49 @@
+# ============================================================
+# .containerignore — claimant-portal (React + TypeScript)
+# Note: images are built from the MONOREPO ROOT (task 35.2). The
+# root .containerignore is authoritative for the shared context;
+# this per-service file documents and enforces the same exclusions
+# so the service can also be built stand-alone. node_modules and the
+# built dist/ are regenerated inside the image (npm ci + npm run build),
+# so they must never be copied in from the host.
+# _Requirements: 17.5, 19.1_
+# ============================================================
+
+# Node artefacts — reinstalled/rebuilt inside the image
+node_modules/
+dist/
+build/
+.vite/
+*.tsbuildinfo
+
+# Test code and coverage — never in production images
+tests/
+**/tests/
+**/*.test.ts
+**/*.test.tsx
+**/__tests__/
+coverage/
+npm-audit-report.json
+
+# Mock / dev data — never in production images
+mock-data/
+
+# Secrets and credentials — never in an image
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.crt
+*.p12
+*.pfx
+
+# Python cache noise (monorepo root context)
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+
+# OS / editor noise
+.DS_Store
+**/.DS_Store
+Thumbs.db

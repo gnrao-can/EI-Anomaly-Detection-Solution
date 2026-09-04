@@ -1,0 +1,34 @@
+{
+  "21234:35": {
+    "noc_code": "21234",
+    "region_code": "35",
+    "active_posting_count": 187,
+    "median_hourly_wage": "42.7550",
+    "reference_month": "2024-05",
+    "snapshot_date": "2099-01-01"
+  },
+  "63201:59": {
+    "noc_code": "63201",
+    "region_code": "59",
+    "active_posting_count": 245,
+    "median_hourly_wage": "24.1000",
+    "reference_month": "2024-05",
+    "snapshot_date": "2099-01-01"
+  },
+  "75110:24": {
+    "noc_code": "75110",
+    "region_code": "24",
+    "active_posting_count": 42,
+    "median_hourly_wage": "31.9900",
+    "reference_month": "2024-05",
+    "snapshot_date": "2099-01-01"
+  },
+  "10010:99": {
+    "noc_code": "10010",
+    "region_code": "99",
+    "active_posting_count": 3,
+    "median_hourly_wage": "58.0000",
+    "reference_month": "2024-05",
+    "snapshot_date": "2000-01-01"
+  }
+}

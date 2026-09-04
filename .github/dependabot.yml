@@ -1,0 +1,47 @@
+# Dependabot configuration for EI-ADS (AI-Enabled EI Anomaly Detection Solution)
+#
+# Enables automated dependency-update pull requests across the three ecosystems
+# used by this monorepo: Python (pip), the React frontend (npm), and GitHub
+# Actions workflows. All updates are opened weekly against the `main` branch and
+# labelled `dependency-update`.
+#
+# SECURITY GATE: Every Dependabot PR MUST pass the `dependency-security` CI job
+# (defined in .github/workflows/ci.yml, added by task 38.1) before it can be
+# merged. That job runs pip-audit / safety (Python) and npm audit / Snyk
+# (frontend) and blocks any finding with CVSS >= 7.0. Branch protection on
+# `main` should mark `dependency-security` as a required status check so this
+# invariant is enforced by GitHub, not just by convention.
+#
+# open-pull-requests-limit is capped at 5 per ecosystem to prevent a PR flood.
+version: 2
+
+updates:
+  # ---- Python runtime + dev dependencies (root pyproject.toml) ----
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "main"
+    labels:
+      - "dependency-update"
+    open-pull-requests-limit: 5
+
+  # ---- React frontend (services/claimant-portal/package.json) ----
+  - package-ecosystem: "npm"
+    directory: "/services/claimant-portal"
+    schedule:
+      interval: "weekly"
+    target-branch: "main"
+    labels:
+      - "dependency-update"
+    open-pull-requests-limit: 5
+
+  # ---- GitHub Actions workflows (.github/workflows/) ----
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    target-branch: "main"
+    labels:
+      - "dependency-update"
+    open-pull-requests-limit: 5

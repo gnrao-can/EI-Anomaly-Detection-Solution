@@ -1,0 +1,12 @@
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.2.1
+httpx==0.28.1
+neo4j==5.27.0
+torch==2.5.1
+torch-geometric==2.6.1
+networkx==3.4.2
+structlog==24.4.0
+opentelemetry-sdk==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0

@@ -1,0 +1,34 @@
+# Portal Backend-for-Frontend (BFF) dependencies
+# Single :8000 origin for the claimant-portal SPA: serves /portal/* and /auth/*,
+# reverse-proxies /api/v1/claims and /api/v1/privacy/* to the Claim Intake Service.
+# Versions are exact-pinned and kept consistent with the repo-wide requirements.lock
+# where they overlap. Government of Canada production compliance: zero CVEs
+# with CVSS >= 7.0.
+#
+# Note: session cookies are signed with the Python standard library (hmac +
+# hashlib), so no extra signing dependency (e.g. itsdangerous) is required.
+
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.2.1
+
+# Reverse proxy to the Claim Intake Service + GCKey token exchange.
+httpx==0.28.1
+
+# multipart/form-data parsing for the BFF-owned claim submission handler
+# (FastAPI Form(...) / UploadFile). Already present transitively via FastAPI's
+# standard extras; pinned here because the submission path relies on it directly.
+python-multipart==0.0.9
+
+# PostgreSQL read side (claims / risk_assessments / indicators / shap_attributions).
+asyncpg==0.30.0
+
+# outcome.feedback publish on CONFIRMED_FRAUD / FALSE_POSITIVE dispositions.
+aiokafka==0.12.0
+
+# GCKey ID-token validation (shared.auth JWT/JWKS path).
+python-jose[cryptography]==3.3.0
+
+# Structured logging (shared telemetry wiring).
+structlog==24.4.0

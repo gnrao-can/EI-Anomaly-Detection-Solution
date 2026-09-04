@@ -1,0 +1,176 @@
+# =============================================================================
+# EI-ADS Redis Cluster — StatefulSet + headless Service + PDB
+# =============================================================================
+# Topology: 5 nodes = 3 primary + 2 replica (Requirement 23.5; matches
+# scripts/redis/redis-cluster.conf and scripts/redis/README.md). The 3
+# primaries collectively own the 16384 hash slots; the 2 replicas provide
+# failover so cache loss does not cause External_Data_Adapter latency spikes.
+#
+# The base node config in scripts/redis/redis-cluster.conf is mounted into
+# every pod via the redis-cluster-config ConfigMap (created by task 36.3). Each
+# pod's identity comes from its StatefulSet ordinal + the headless Service DNS;
+# the cluster is bootstrapped once with `redis-cli --cluster create` (see
+# scripts/redis/README.md).
+#
+# NOTE (sandbox): validated for YAML well-formedness only. NOT applied to a
+# live cluster (none available in the sandbox). Cluster formation
+# (`redis-cli --cluster create ... --cluster-replicas`) is a one-time manual /
+# init-job step after all 5 pods are Ready.
+# -----------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: cache
+spec:
+  serviceName: redis-cluster-headless
+  # 5 nodes: 3 primary + 2 replica (Req 23.5).
+  replicas: 5
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-cluster
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-cluster
+        app.kubernetes.io/part-of: ei-ads
+        app.kubernetes.io/component: cache
+    spec:
+      # Spread nodes across hosts so a single host loss cannot take out a
+      # primary AND its replica.
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: redis-cluster
+                topologyKey: kubernetes.io/hostname
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        fsGroup: 999
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: redis
+          image: redis:7.2-alpine
+          imagePullPolicy: IfNotPresent
+          command:
+            - redis-server
+            - /etc/redis/redis-cluster.conf
+          ports:
+            - name: client
+              containerPort: 6379
+            - name: gossip
+              containerPort: 16379
+          env:
+            # requirepass / masterauth are injected from a Secret at runtime
+            # (never committed); see scripts/redis/redis-cluster.conf notes.
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redis-auth
+                  key: REDIS_PASSWORD
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 2Gi
+            limits:
+              cpu: "1"
+              memory: 3Gi
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "-a", "$(REDIS_PASSWORD)", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: config
+              mountPath: /etc/redis
+      volumes:
+        - name: config
+          configMap:
+            name: redis-cluster-config
+            items:
+              - key: redis-cluster.conf
+                path: redis-cluster.conf
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+# Headless Service — stable per-pod DNS for cluster gossip + client discovery.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster-headless
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app.kubernetes.io/name: redis-cluster
+  ports:
+    - name: client
+      port: 6379
+      targetPort: client
+    - name: gossip
+      port: 16379
+      targetPort: gossip
+---
+# Client-facing Service — cluster-aware clients discover topology via any node.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: redis-cluster
+  ports:
+    - name: client
+      port: 6379
+      targetPort: client
+---
+# PodDisruptionBudget — never voluntarily evict more than 1 node at a time so
+# no primary/replica pair is lost together during maintenance.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-cluster
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-cluster

@@ -1,0 +1,41 @@
+# EI-ADS pre-commit hooks.
+#
+# Dependency-security gate (task 38.1, Requirement 19.6): block commits that
+# introduce a dependency with a CVE of CVSS >= 7.0. Two independent scanners run
+# against the canonical, fully-pinned requirements.lock:
+#
+#   1. pip-audit (OSV vulnerability service, --strict)
+#   2. safety    (Safety DB, driven by scripts/dependencies/safety-policy.yml)
+#
+# The same two checks run in CI (the `dependency-security` job in
+# .github/workflows/ci.yml and the Tekton task in
+# .tekton/security-scan-task.yaml) so local and CI enforcement stay identical.
+#
+# Install locally with:  pre-commit install
+minimum_pre_commit_version: "3.5.0"
+
+repos:
+  - repo: local
+    hooks:
+      # ---- pip-audit: primary gate (OSV database) -------------------------
+      - id: pip-audit-lock
+        name: pip-audit (requirements.lock, OSV, strict)
+        entry: pip-audit --strict --vulnerability-service osv -r requirements.lock
+        language: python
+        additional_dependencies:
+          - pip-audit==2.7.3
+        # Only run when the lockfile changes, but also run in CI / on demand.
+        files: ^requirements\.lock$
+        pass_filenames: false
+        always_run: false
+
+      # ---- safety: second gate (Safety DB + policy file) ------------------
+      - id: safety-check
+        name: safety check (Safety DB, policy-file)
+        entry: safety check --full-report --policy-file scripts/dependencies/safety-policy.yml -r requirements.lock
+        language: python
+        additional_dependencies:
+          - safety==3.2.11
+        files: ^(requirements\.lock|scripts/dependencies/safety-policy\.yml)$
+        pass_filenames: false
+        always_run: false

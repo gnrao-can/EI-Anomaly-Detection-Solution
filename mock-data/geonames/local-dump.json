@@ -1,0 +1,34 @@
+{
+  "_metadata": {
+    "description": "Local GeoNames coordinate dump for EI-ADS dev/test. Maps Canadian postal codes / FSAs to (latitude, longitude). Used as the offline fallback when the GeoNames REST API is unavailable and always in dev/test.",
+    "source": "Derived from public Canada Post FSA centroids / GeoNames postal-code dataset (representative approximations).",
+    "coordinate_bounds": {"lat": [-90.0, 90.0], "lon": [-180.0, 180.0]},
+    "generated_at": "2026-09-15T00:00:00Z",
+    "refresh_interval_days": 90
+  },
+  "entries": {
+    "K1A": {"latitude": 45.4247, "longitude": -75.6950, "place_name": "Ottawa (Government)", "province": "ON"},
+    "K1A0A9": {"latitude": 45.4235, "longitude": -75.7009, "place_name": "Ottawa (Parliament)", "province": "ON"},
+    "K2P": {"latitude": 45.4180, "longitude": -75.6980, "place_name": "Ottawa (Centretown)", "province": "ON"},
+    "M5V": {"latitude": 43.6440, "longitude": -79.3980, "place_name": "Toronto (Downtown)", "province": "ON"},
+    "M5H": {"latitude": 43.6489, "longitude": -79.3817, "place_name": "Toronto (Financial District)", "province": "ON"},
+    "M4W": {"latitude": 43.6810, "longitude": -79.3780, "place_name": "Toronto (Rosedale)", "province": "ON"},
+    "H2X": {"latitude": 45.5088, "longitude": -73.5697, "place_name": "Montreal (Downtown)", "province": "QC"},
+    "H2X1Y4": {"latitude": 45.5120, "longitude": -73.5680, "place_name": "Montreal (Quartier Latin)", "province": "QC"},
+    "H3B": {"latitude": 45.5017, "longitude": -73.5673, "place_name": "Montreal (Ville-Marie)", "province": "QC"},
+    "V6B": {"latitude": 49.2820, "longitude": -123.1171, "place_name": "Vancouver (Downtown)", "province": "BC"},
+    "V6B4Y8": {"latitude": 49.2860, "longitude": -123.1120, "place_name": "Vancouver (Canada Place)", "province": "BC"},
+    "V5K": {"latitude": 49.2810, "longitude": -123.0300, "place_name": "Vancouver (East)", "province": "BC"},
+    "T2P": {"latitude": 51.0470, "longitude": -114.0630, "place_name": "Calgary (Downtown)", "province": "AB"},
+    "T5J": {"latitude": 53.5440, "longitude": -113.4900, "place_name": "Edmonton (Downtown)", "province": "AB"},
+    "R3C": {"latitude": 49.8951, "longitude": -97.1384, "place_name": "Winnipeg (Downtown)", "province": "MB"},
+    "S7K": {"latitude": 52.1332, "longitude": -106.6700, "place_name": "Saskatoon (Central)", "province": "SK"},
+    "B3J": {"latitude": 44.6488, "longitude": -63.5752, "place_name": "Halifax (Downtown)", "province": "NS"},
+    "E1C": {"latitude": 46.0878, "longitude": -64.7782, "place_name": "Moncton (Central)", "province": "NB"},
+    "C1A": {"latitude": 46.2382, "longitude": -63.1311, "place_name": "Charlottetown", "province": "PE"},
+    "A1C": {"latitude": 47.5615, "longitude": -52.7126, "place_name": "St. John's (Downtown)", "province": "NL"},
+    "X1A": {"latitude": 62.4540, "longitude": -114.3718, "place_name": "Yellowknife", "province": "NT"},
+    "Y1A": {"latitude": 60.7212, "longitude": -135.0568, "place_name": "Whitehorse", "province": "YT"},
+    "X0A": {"latitude": 63.7467, "longitude": -68.5170, "place_name": "Iqaluit", "province": "NU"}
+  }
+}

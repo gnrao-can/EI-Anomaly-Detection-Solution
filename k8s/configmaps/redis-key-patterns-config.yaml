@@ -1,0 +1,46 @@
+# =============================================================================
+# EI-ADS Redis Key Patterns + TTLs ConfigMap
+# =============================================================================
+# Canonical Redis cache key patterns and their TTLs, mirrored from
+# shared/cache_keys.py (design "Redis Caching Strategy"). Adapters build keys
+# in code via the builder functions in cache_keys.py; this ConfigMap surfaces
+# the same patterns/TTLs to non-Python tooling, dashboards, and ops runbooks so
+# there is a single documented view of the cache namespace.
+#
+# TTLs are in seconds and match the constants in shared/cache_keys.py:
+#   30d=2592000, 90d=7776000, 7d=604800, 24h=86400, 1h=3600, 60s=60.
+#
+# Namespace: ei-ads.
+#
+# NOTE (sandbox): validated for YAML well-formedness only. NOT applied to a
+# live cluster (none available in the sandbox).
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ei-ads-redis-key-patterns
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: cache-config
+data:
+  # --- Key patterns (owning service in comment) ---
+  REDIS_KEY_STATSCAN_LFS: "statscan:lfs:{region_code}:{year_month}"      # Stats Canada Adapter
+  REDIS_KEY_CRA_T4: "cra:t4:{sin_hash}:{bn}:{year}"                      # CRA Adapter
+  REDIS_KEY_GEONAMES_COORD: "geonames:coord:{postal_code}"              # GeoNames Adapter
+  REDIS_KEY_GEONAMES_DIST: "geonames:dist:{pair_hash}"                  # GeoNames Adapter
+  REDIS_KEY_BIZ_REG_EMPLOYER: "biz_reg:employer:{bn}"                   # Business Registry Adapter
+  REDIS_KEY_MVR_OWNERSHIP: "mvr:ownership:{sin_hash}:{province}"        # MVR Adapter
+  REDIS_KEY_JOB_BANK_POSTINGS: "job_bank:postings:{noc}:{region}:{year_month}"  # Job Bank Adapter
+  REDIS_KEY_CBSA_TRAVEL: "cbsa:travel:{sin_hash}:{period_hash}"         # CBSA Adapter
+  REDIS_KEY_ORCHESTRATOR_PAIRING: "orchestrator:pairing:{claim_id}"     # Pipeline Orchestrator
+  # --- TTLs (seconds) ---
+  REDIS_TTL_STATSCAN_LFS_SECONDS: "2592000"        # 30 days
+  REDIS_TTL_CRA_T4_SECONDS: "86400"                # 24 hours
+  REDIS_TTL_GEONAMES_COORD_SECONDS: "7776000"      # 90 days
+  REDIS_TTL_GEONAMES_DIST_SECONDS: "604800"        # 7 days
+  REDIS_TTL_BIZ_REG_EMPLOYER_SECONDS: "86400"      # 24 hours
+  REDIS_TTL_MVR_OWNERSHIP_SECONDS: "3600"          # 1 hour
+  REDIS_TTL_JOB_BANK_POSTINGS_SECONDS: "604800"    # 7 days
+  REDIS_TTL_CBSA_TRAVEL_SECONDS: "3600"            # 1 hour
+  REDIS_TTL_ORCHESTRATOR_PAIRING_SECONDS: "60"     # 60 seconds

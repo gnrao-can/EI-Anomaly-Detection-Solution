@@ -1,0 +1,248 @@
+{
+  "app": {
+    "title": "Portail d'assurance-emploi",
+    "loading": "Chargement…"
+  },
+  "language": {
+    "label": "Langue",
+    "en": "English",
+    "fr": "Français",
+    "switchToFrench": "Français",
+    "switchToEnglish": "English"
+  },
+  "nav": {
+    "home": "Accueil",
+    "submitClaim": "Présenter une demande",
+    "myClaims": "Mes demandes",
+    "dashboard": "Tableau de bord de l'enquêteur",
+    "signIn": "Se connecter avec CléGC",
+    "signOut": "Se déconnecter"
+  },
+  "auth": {
+    "signInPrompt": "Vous devez vous connecter avec CléGC pour continuer.",
+    "signingIn": "Redirection vers CléGC…",
+    "processingCallback": "Finalisation de la connexion…",
+    "callbackError": "La connexion n'a pas pu être complétée. Veuillez réessayer.",
+    "stateMismatch": "La demande de connexion n'a pas pu être vérifiée. Pour votre sécurité, veuillez vous reconnecter.",
+    "sessionExpired": "Votre session a expiré. Veuillez vous reconnecter."
+  },
+  "authz": {
+    "forbiddenTitle": "Accès refusé",
+    "forbiddenMessage": "Vous n'avez pas la permission de consulter cette page."
+  },
+  "dashboard": {
+    "flaggedClaims": {
+      "title": "Demandes signalées",
+      "caption": "Demandes signalées pour examen ou enquête, triées par cote de risque, de la plus élevée à la plus faible.",
+      "empty": "Aucune demande signalée à examiner.",
+      "loadError": "Impossible de charger les demandes signalées. Veuillez réessayer."
+    },
+    "column": {
+      "riskScore": "Cote de risque",
+      "decision": "Décision",
+      "claimant": "Prestataire",
+      "employerBn": "NE de l'employeur",
+      "receivedAt": "Reçue le",
+      "actions": "Actions"
+    },
+    "decision": {
+      "flagForReview": "Signaler pour examen",
+      "investigate": "Enquêter"
+    },
+    "action": {
+      "review": "Examiner le dossier"
+    },
+    "stream": {
+      "live": "Mises à jour en direct activées",
+      "connecting": "Connexion aux mises à jour en direct…",
+      "offline": "Mises à jour en direct indisponibles"
+    }
+  },
+  "investigator": {
+    "detail": {
+      "title": "Enquête sur la demande",
+      "claimId": "Numéro de demande",
+      "riskScore": "Cote de risque",
+      "riskDecision": "Décision de risque",
+      "employerBn": "NE de l'employeur",
+      "claimant": "Prestataire",
+      "explanation": "Explication",
+      "explanationPending": "Aucune explication n'est disponible pour cette demande.",
+      "notFound": "Cette demande signalée est introuvable.",
+      "loadError": "Impossible de charger les détails de la demande. {{message}}",
+      "retry": "Réessayer"
+    },
+    "decision": {
+      "AUTO_APPROVE": "Approbation automatique",
+      "FLAG_FOR_REVIEW": "Signaler pour examen",
+      "INVESTIGATE": "Enquêter",
+      "INDETERMINATE": "Indéterminée"
+    },
+    "severity": {
+      "CRITICAL": "Critique",
+      "HIGH": "Élevée",
+      "MEDIUM": "Moyenne",
+      "LOW": "Faible",
+      "UNRESOLVED": "Non résolue"
+    },
+    "indicators": {
+      "title": "Indicateurs",
+      "empty": "Aucun indicateur n'a été produit pour cette demande.",
+      "severityPrefix": "Gravité :"
+    },
+    "shap": {
+      "title": "Attribution des caractéristiques SHAP",
+      "description": "Diagramme à barres montrant la contribution de chacun des {{count}} indicateurs à la cote de risque. Les valeurs positives augmentent le risque; les valeurs négatives le diminuent.",
+      "featureAxis": "Indicateur",
+      "contributionAxis": "Contribution SHAP à la cote de risque",
+      "directionAxis": "Effet sur le risque",
+      "barLabel": "{{feature}} : contribution {{value}}",
+      "increasesRisk": "Augmente le risque",
+      "decreasesRisk": "Diminue le risque",
+      "empty": "Aucune attribution SHAP n'est disponible pour cette demande."
+    },
+    "disposition": {
+      "title": "Décision sur le dossier",
+      "legend": "Enregistrez votre décision pour cette demande",
+      "selectRequired": "Sélectionnez une décision avant de soumettre.",
+      "notesLabel": "Notes de dossier",
+      "submit": "Enregistrer la décision",
+      "submitting": "Enregistrement…",
+      "success": "Décision enregistrée : {{disposition}}.",
+      "error": "Impossible d'enregistrer la décision. {{message}}",
+      "option": {
+        "CONFIRMED_FRAUD": "Fraude confirmée",
+        "FALSE_POSITIVE": "Faux positif",
+        "NEEDS_FURTHER_REVIEW": "Examen supplémentaire requis"
+      }
+    }
+  },
+  "home": {
+    "heading": "Bienvenue au Portail d'assurance-emploi",
+    "intro": "Présentez et suivez votre demande d'assurance-emploi en toute sécurité."
+  },
+  "submitClaim": {
+    "heading": "Présenter une demande d'assurance-emploi",
+    "intro": "Les champs marqués d'un astérisque (*) sont obligatoires.",
+    "submit": "Présenter la demande",
+    "submitting": "Envoi en cours…",
+    "fields": {
+      "sin": {
+        "label": "Numéro d'assurance sociale (NAS)",
+        "hint": "Saisissez votre NAS à 9 chiffres. Les espaces et les traits d'union sont acceptés."
+      },
+      "employerBn": {
+        "label": "Numéro d'entreprise (NE) de l'employeur",
+        "hint": "Saisissez le NE à 9 chiffres, ou le NE à 15 caractères avec le compte de programme (par exemple 123456789RT0001)."
+      },
+      "insurableHours": {
+        "label": "Heures assurables",
+        "hint": "Total des heures assurables travaillées durant votre période de référence."
+      },
+      "insurableEarnings": {
+        "label": "Rémunération assurable",
+        "hint": "Total de la rémunération assurable en dollars canadiens."
+      },
+      "separationDate": {
+        "label": "Date de cessation d'emploi",
+        "hint": "Votre dernier jour de travail, au format année-mois-jour. Elle ne peut pas être dans le futur."
+      },
+      "separationReason": {
+        "label": "Motif de la cessation d'emploi",
+        "hint": "Décrivez brièvement pourquoi votre emploi a pris fin."
+      },
+      "roeDocument": {
+        "label": "Relevé d'emploi (RE)",
+        "hint": "Facultatif. Joignez votre RE en format PDF, XML ou JSON."
+      }
+    },
+    "errors": {
+      "generic": "Ce champ est invalide. Veuillez vérifier votre saisie.",
+      "network": "Impossible de joindre le service. Vérifiez votre connexion et réessayez.",
+      "server": "Votre demande n'a pas pu être présentée pour le moment. Veuillez réessayer plus tard.",
+      "sin": {
+        "MISSING": "Saisissez votre numéro d'assurance sociale.",
+        "INVALID": "Saisissez un NAS valide à 9 chiffres. Il doit réussir la validation du chiffre de contrôle et ne peut pas commencer par 0."
+      },
+      "employerBn": {
+        "MISSING": "Saisissez le numéro d'entreprise de l'employeur.",
+        "INVALID": "Saisissez un NE valide : 9 chiffres, ou 9 chiffres suivis d'un code de programme et d'un compte à 4 chiffres."
+      },
+      "insurableHours": {
+        "MISSING": "Saisissez le total des heures assurables travaillées.",
+        "INVALID": "Les heures assurables doivent être un nombre supérieur à 0.",
+        "TOO_LARGE": "Les heures assurables ne peuvent pas dépasser 3120 (60 heures par semaine sur 52 semaines)."
+      },
+      "insurableEarnings": {
+        "MISSING": "Saisissez le total de la rémunération assurable.",
+        "INVALID": "La rémunération assurable doit être un nombre supérieur à 0."
+      },
+      "separationDate": {
+        "MISSING": "Saisissez votre date de cessation d'emploi.",
+        "INVALID": "Saisissez une date valide au format année-mois-jour qui n'est pas dans le futur."
+      },
+      "separationReason": {
+        "MISSING": "Saisissez le motif de la cessation d'emploi.",
+        "TOO_LARGE": "Le motif de la cessation d'emploi doit comporter au plus 1000 caractères."
+      }
+    },
+    "errorSummary": {
+      "heading": "Un problème est survenu"
+    },
+    "confirmation": {
+      "heading": "Demande présentée avec succès",
+      "body": "Votre demande a été reçue et est en cours de traitement. Conservez votre numéro de demande pour vos dossiers.",
+      "claimIdLabel": "Numéro de demande :"
+    }
+  },
+  "myClaims": {
+    "intro": "Saisissez votre numéro de demande pour en consulter l'état.",
+    "claimIdLabel": "Numéro de demande",
+    "claimIdRequired": "Saisissez un numéro de demande pour continuer.",
+    "viewStatus": "Consulter l'état de la demande"
+  },
+  "claimStatus": {
+    "heading": "État de la demande",
+    "claimId": "Numéro de demande",
+    "statusLabel": "État",
+    "decisionLabel": "Décision",
+    "decisionPending": "Pas encore disponible",
+    "explanationLabel": "Explication",
+    "explanationPending": "Une explication sera disponible une fois votre demande évaluée.",
+    "notFound": "Nous n'avons trouvé aucune demande portant ce numéro.",
+    "loadError": "Impossible de charger l'état de votre demande. {{message}}",
+    "retry": "Réessayer",
+    "status": {
+      "RECEIVED": "Reçue",
+      "PROCESSING": "En cours de traitement",
+      "DECIDED": "Décision rendue",
+      "UNDER_REVIEW": "En cours d'examen",
+      "CLOSED": "Fermée"
+    },
+    "decision": {
+      "AUTO_APPROVE": "Approuvée",
+      "FLAG_FOR_REVIEW": "En cours d'examen",
+      "INVESTIGATE": "Renvoyée pour enquête",
+      "INDETERMINATE": "Décision en attente de renseignements supplémentaires"
+    }
+  },
+  "privacy": {
+    "heading": "Vos droits en matière de protection des renseignements personnels",
+    "intro": "En vertu de la Loi sur la protection des renseignements personnels, vous pouvez demander une copie des renseignements personnels que nous détenons à votre sujet ou en demander la suppression.",
+    "accessButton": "Demander mes données",
+    "deleteButton": "Demander la suppression de mes données",
+    "deleteConfirmHeading": "Confirmer la demande de suppression",
+    "deleteConfirmMessage": "Cette action demandera la suppression permanente de vos renseignements identificatoires. Cette action est irréversible. Voulez-vous continuer?",
+    "deleteConfirmButton": "Oui, demander la suppression",
+    "deleteCancelButton": "Annuler",
+    "submitting": "Envoi de votre demande…",
+    "accessSubmitted": "Votre demande d'accès aux données a été soumise. Référence : {{reference}}. Nous répondrons dans un délai de 30 jours.",
+    "deleteSubmitted": "Votre demande de suppression des données a été soumise. Référence : {{reference}}. Nous répondrons dans un délai de 30 jours.",
+    "referencePending": "en attente",
+    "error": "Votre demande n'a pas pu être soumise. {{message}}"
+  },
+  "errors": {
+    "notFound": "Page introuvable",
+    "generic": "Une erreur s'est produite."
+  }
+}

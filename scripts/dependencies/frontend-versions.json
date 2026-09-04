@@ -1,0 +1,18 @@
+{
+  "_comment": "EI-ADS canonical pinned frontend dependency versions. No ranges allowed.",
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "7.1.1",
+    "i18next": "24.2.0",
+    "react-i18next": "15.2.0",
+    "recharts": "2.15.0"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2",
+    "vite": "6.0.5",
+    "@testing-library/react": "16.1.0",
+    "jest-axe": "9.0.0",
+    "axe-core": "4.10.2"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "province": "NS",
+  "owned_ratio": 0.70,
+  "classes": ["PASSENGER", "TRUCK"],
+  "record": {
+    "vehicle_ownership_status": "OWNED",
+    "vehicle_class": "TRUCK",
+    "vin": "SYNNS000006",
+    "vehicle_history": ["registered", "renewed"],
+    "insurance_provider": "NS Mutual",
+    "lien_balance": 15750.25,
+    "registered_owner_name": "Synthetic Owner NS",
+    "registration_expiry": "2026-09-30"
+  }
+}

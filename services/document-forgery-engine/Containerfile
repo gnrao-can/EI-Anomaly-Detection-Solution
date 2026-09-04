@@ -1,0 +1,52 @@
+# ============================================================
+# document-forgery-engine — Document Forgery Detection Engine
+# Base: registry.access.redhat.com/ubi9/python-311 (pinned tag)
+# OpenShift-compatible, rootless (USER 1001)
+# GPU node pool: NVIDIA T4 (for LayoutLMv3 inference)
+#
+# Build context is the MONOREPO ROOT so the shared/ package and the
+# service source are both available (see scripts/build-images.sh, task 35.2):
+#   podman build -f services/document-forgery-engine/Containerfile .
+# ============================================================
+
+# ── Stage 1: Builder ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:9.5 AS builder
+
+WORKDIR /build
+
+RUN pip install --no-cache-dir --upgrade pip==24.3.1 poetry==1.8.5
+
+COPY pyproject.toml ./
+COPY shared/ ./shared/
+
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --without dev \
+    && pip install --no-cache-dir -e ./shared
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:9.5 AS runtime
+
+LABEL org.opencontainers.image.title="ei-ads-document-forgery-engine" \
+      org.opencontainers.image.description="EI-ADS Document Forgery Detection Engine (LayoutLMv3)" \
+      org.opencontainers.image.vendor="ESDC EI-ADS Team"
+
+WORKDIR /app
+
+COPY --from=builder /usr/lib/python3.11/site-packages /usr/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+COPY --from=builder /build/shared ./shared
+COPY services/document-forgery-engine/ ./
+
+USER 1001
+
+# Service port is taken from config.py (document_forgery_engine_port = 8015).
+EXPOSE 8015
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=40s --retries=3 \
+    CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8015/healthz', timeout=2).status==200 else 1)"]
+
+# Single worker: LayoutLMv3 model is large; run one process per pod and scale via HPA.
+ENTRYPOINT ["uvicorn"]
+CMD ["main:app", "--host", "0.0.0.0", "--port", "8015", "--workers", "1"]

@@ -1,0 +1,57 @@
+{
+  "source_api_version": "98100424",
+  "table_id": "98100424",
+  "description": "Labour Force Survey (LFS) monthly unemployment, employment, and participation rates by ESDC economic region.",
+  "records": [
+    {
+      "reference_month": "2024-05",
+      "esdc_region_code": "10",
+      "region_name_en": "St. John's, Newfoundland and Labrador",
+      "region_name_fr": "St. John's, Terre-Neuve-et-Labrador",
+      "unemployment_rate": 8.4213,
+      "employment_rate": 54.1876,
+      "participation_rate": 59.0912,
+      "national_unemployment_rate": 6.1024
+    },
+    {
+      "reference_month": "2024-05",
+      "esdc_region_code": "24",
+      "region_name_en": "Montreal, Quebec",
+      "region_name_fr": "Montreal, Quebec",
+      "unemployment_rate": 5.7391,
+      "employment_rate": 61.4508,
+      "participation_rate": 65.2247,
+      "national_unemployment_rate": 6.1024
+    },
+    {
+      "reference_month": "2024-05",
+      "esdc_region_code": "35",
+      "region_name_en": "Toronto, Ontario",
+      "region_name_fr": "Toronto, Ontario",
+      "unemployment_rate": 6.9057,
+      "employment_rate": 60.8813,
+      "participation_rate": 65.4470,
+      "national_unemployment_rate": 6.1024
+    },
+    {
+      "reference_month": "2024-05",
+      "esdc_region_code": "48",
+      "region_name_en": "Calgary, Alberta",
+      "region_name_fr": "Calgary, Alberta",
+      "unemployment_rate": 6.1024,
+      "employment_rate": 64.7719,
+      "participation_rate": 68.9930,
+      "national_unemployment_rate": 6.1024
+    },
+    {
+      "reference_month": "2024-05",
+      "esdc_region_code": "59",
+      "region_name_en": "Vancouver, British Columbia",
+      "region_name_fr": "Vancouver, Colombie-Britannique",
+      "unemployment_rate": 5.3308,
+      "employment_rate": 62.3145,
+      "participation_rate": 65.8802,
+      "national_unemployment_rate": 6.1024
+    }
+  ]
+}

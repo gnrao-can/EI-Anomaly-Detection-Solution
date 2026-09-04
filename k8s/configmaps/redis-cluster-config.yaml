@@ -1,0 +1,76 @@
+# =============================================================================
+# EI-ADS Redis Cluster Node Config ConfigMap (Requirement 23.5)
+# =============================================================================
+# Mounts the base Redis node config into every pod of the `redis-cluster`
+# StatefulSet (k8s/statefulsets/redis-cluster.yaml expects a ConfigMap named
+# `redis-cluster-config` with a `redis-cluster.conf` key mounted at
+# /etc/redis/redis-cluster.conf).
+#
+# SOURCE OF TRUTH: scripts/redis/redis-cluster.conf. This ConfigMap embeds that
+# file verbatim. If the source file changes, regenerate this ConfigMap, e.g.:
+#   kubectl create configmap redis-cluster-config -n ei-ads \
+#     --from-file=redis-cluster.conf=scripts/redis/redis-cluster.conf \
+#     --dry-run=client -o yaml
+# The manifest form is committed here so the config is reviewable in-repo.
+#
+# SECURITY: the embedded config uses placeholder auth (requirepass/masterauth =
+# CHANGE_ME_SET_VIA_ENV_OR_SECRET). Real credentials come from the `redis-auth`
+# Secret (REDIS_PASSWORD) at runtime — see k8s/secrets/infra-secrets.yaml. Do
+# NOT paste a real password into this ConfigMap.
+#
+# Namespace: ei-ads.
+#
+# NOTE (sandbox): validated for YAML well-formedness only. NOT applied to a
+# live cluster (none available in the sandbox).
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-cluster-config
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: cache-config
+data:
+  redis-cluster.conf: |
+    # =========================================================================
+    # EI-ADS Redis Cluster Configuration
+    # =========================================================================
+    # Topology: 3 primary + 2 replica nodes (Req 23.5).
+    # SOURCE OF TRUTH: scripts/redis/redis-cluster.conf (kept in sync).
+    # -------------------------------------------------------------------------
+
+    # --- Cluster mode ---
+    cluster-enabled yes
+    cluster-config-file nodes.conf
+    cluster-node-timeout 5000
+    cluster-require-full-coverage no
+
+    # --- Persistence: AOF ---
+    appendonly yes
+    appendfsync everysec
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+
+    # --- Persistence: RDB snapshots ---
+    save 900 1
+    save 300 10
+    save 60 10000
+    dir /data
+
+    # --- Memory management ---
+    maxmemory-policy allkeys-lru
+    maxmemory 2gb
+
+    # --- Networking / liveness ---
+    tcp-keepalive 300
+    port 6379
+
+    # --- Authentication ---
+    # SECURITY: placeholders only. Real values injected via the redis-auth
+    # Secret (REDIS_PASSWORD) at runtime; requirepass and masterauth MUST match
+    # across all nodes so replicas can sync from primaries.
+    requirepass CHANGE_ME_SET_VIA_ENV_OR_SECRET
+    masterauth CHANGE_ME_SET_VIA_ENV_OR_SECRET
+    protected-mode yes

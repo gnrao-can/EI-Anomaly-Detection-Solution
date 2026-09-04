@@ -1,0 +1,69 @@
+---
+# CRA Adapter — egress restricted to the Gov of Canada secure data exchange only.
+# Requirements: 13.4 (secure-channel-exclusive transmission pattern, applied to
+#   the CRA adapter), 19.2 (data minimisation).
+# Design: External Data Adapters — CRA Adapter: "Transport: Gov of Canada secure
+#   data exchange; mTLS 1.3 with client certificates".
+#
+# Selector: app.kubernetes.io/name: cra-adapter (project label convention;
+#   matches services/cra-adapter/).
+#
+# Egress allowances:
+#   1. Intra-namespace pods (Redis cache for cra:t4:* keys, Kafka, orchestrator,
+#      ClickHouse audit sink) inside ei-ads-prod.
+#   2. DNS to kube-system.
+#   3. The GC secure data exchange ONLY, over HTTPS/mTLS 1.3 (TCP 443). The
+#      destination CIDR is a placeholder representing the GC secure data exchange
+#      interconnect and MUST be set to the real range at deploy time. It is
+#      deliberately NOT 0.0.0.0/0, and RFC1918 / link-local ranges are excluded.
+#
+# No rule allows 0.0.0.0/0, so all general public-internet egress is denied for
+# the CRA adapter.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: cra-adapter-egress-gc-secure-exchange-only
+  namespace: ei-ads-prod
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: network-policy
+    ei-ads/policy: cra-gc-secure-exchange-egress
+  annotations:
+    # Placeholder CIDR — replace with the real GC secure data exchange range
+    # before applying to a cluster.
+    ei-ads/gc-secure-exchange-cidr: "205.193.0.0/16"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: ei-ads
+      app.kubernetes.io/name: cra-adapter
+  policyTypes:
+    - Egress
+  egress:
+    # (1) Intra-namespace services.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ei-ads-prod
+    # (2) DNS.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # (3) GC secure data exchange ONLY, HTTPS/mTLS 1.3 on TCP 443.
+    - to:
+        - ipBlock:
+            cidr: 205.193.0.0/16
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443

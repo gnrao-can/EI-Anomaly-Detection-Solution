@@ -1,0 +1,312 @@
+name: CI
+
+# EI-ADS continuous integration.
+#
+# This workflow builds and publishes every service container image with Podman.
+# The build-and-push job (task 35.4) fans out over a per-service matrix so all
+# images build in parallel, fails the pipeline if any image fails to build or
+# push, and caches the Podman layer store between runs to reduce build times.
+#
+# Registry credentials are read from repository/organization secrets:
+#   OCP_REGISTRY  internal OpenShift image registry host (e.g. default-route-openshift-image-registry.apps.example.com)
+#   OCP_USER      service account username used for podman login
+#   OCP_TOKEN     service account token used for podman login
+#
+# Requirements: 17.5
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # discover-services
+  # ---------------------------------------------------------------------------
+  # Emit the list of services that ship a Containerfile as a JSON array. The
+  # build-and-push matrix consumes this so we never hard-code the service list;
+  # adding services/<name>/Containerfile automatically extends the matrix.
+  discover-services:
+    name: Discover services
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.discover.outputs.services }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Discover services with a Containerfile
+        id: discover
+        run: |
+          services="$(find services -mindepth 2 -maxdepth 2 -name Containerfile \
+            -printf '%h\n' | xargs -n1 basename | sort -u \
+            | python3 -c 'import json,sys; print(json.dumps([l.strip() for l in sys.stdin if l.strip()]))')"
+          echo "services=${services}" >> "$GITHUB_OUTPUT"
+          echo "Discovered services: ${services}"
+
+  # ---------------------------------------------------------------------------
+  # dependency-security  (task 38.1, Requirement 19.6)
+  # ---------------------------------------------------------------------------
+  # Python supply-chain gate. Runs BEFORE any image is built so a vulnerable
+  # dependency can never reach the registry. Two independent scanners audit the
+  # canonical, fully-pinned requirements.lock:
+  #   1. pip-audit against the OSV database (--strict)
+  #   2. safety against the Safety DB, driven by safety-policy.yml
+  # Either scanner reporting a CVE with CVSS >= 7.0 fails the job (and therefore
+  # the pipeline). Accepted exceptions live in scripts/dependencies/EXCEPTIONS.md
+  # and are encoded in safety-policy.yml. This job is a required prerequisite of
+  # build-and-push via `needs:` below.
+  #
+  # NOTE: the React/npm supply-chain gate (task 38.2) is a SEPARATE job; keep
+  # these two blocks independent so concurrent edits merge cleanly.
+  dependency-security:
+    name: Dependency security (pip-audit + safety)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install pinned scanners
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit==2.7.3 safety==3.2.11
+          pip-audit --version
+          safety --version
+
+      # Gate 1 — pip-audit (OSV). --strict treats warnings as errors and any
+      # vulnerable dependency yields a non-zero exit, failing the job.
+      - name: pip-audit (OSV, strict)
+        run: pip-audit --strict --vulnerability-service osv -r requirements.lock
+
+      # Gate 2 — safety, using the committed policy file. Accepted exceptions
+      # (if any) are declared there and cross-referenced in EXCEPTIONS.md.
+      - name: safety check (Safety DB, policy-file)
+        run: safety check --full-report --policy-file scripts/dependencies/safety-policy.yml -r requirements.lock
+
+  # ---------------------------------------------------------------------------
+  # build-and-push
+  # ---------------------------------------------------------------------------
+  # One matrix leg per service builds that service's SHA-tagged image with
+  # scripts/build-images.sh (scoped via the SERVICES env var) and publishes it
+  # with scripts/push-images.sh. fail-fast aborts the whole matrix the moment
+  # any single image fails to build or push. The Podman layer store is cached
+  # between runs, keyed on the Containerfiles so a dependency change busts it.
+  build-and-push:
+    name: Build & push (${{ matrix.service }})
+    # Gate builds on the dependency-security job so no image is built until the
+    # Python supply-chain scan passes (task 38.1). discover-services supplies
+    # the matrix.
+    needs: [discover-services, dependency-security]
+    runs-on: ubuntu-latest
+    strategy:
+      # Fail the pipeline if any image fails to build or push.
+      fail-fast: true
+      max-parallel: 6
+      matrix:
+        service: ${{ fromJson(needs.discover-services.outputs.services) }}
+    env:
+      IMAGE_PREFIX: ei-ads
+      # Scope both scripts to this matrix leg's single service.
+      SERVICES: ${{ matrix.service }}
+      # Push :latest only from the default branch; build-time SHA tags always.
+      OCP_REGISTRY: ${{ secrets.OCP_REGISTRY }}
+      OCP_USER: ${{ secrets.OCP_USER }}
+      OCP_TOKEN: ${{ secrets.OCP_TOKEN }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          # build-images.sh derives the image tag from the short Git SHA, so we
+          # need the commit present (fetch-depth 1 is enough for rev-parse).
+          fetch-depth: 1
+
+      - name: Install Podman
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y podman
+          podman --version
+
+      # Persist the rootless Podman layer/image store between runs. Keying on
+      # the Containerfiles means a base-image or dependency change invalidates
+      # the cache while day-to-day source edits still hit it.
+      - name: Cache Podman layer store
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/containers/storage
+          key: podman-${{ matrix.service }}-${{ hashFiles(format('services/{0}/Containerfile', matrix.service), 'pyproject.toml') }}
+          restore-keys: |
+            podman-${{ matrix.service }}-
+            podman-
+
+      - name: Build image (SHA tag + smoke test)
+        run: |
+          chmod +x scripts/build-images.sh
+          scripts/build-images.sh
+
+      # Publish the SHA-tagged image to the internal OpenShift registry. The
+      # push script tags/pushes :latest itself only when on the main branch
+      # (it inspects GITHUB_REF), so we simply invoke it here per service.
+      - name: Push image to registry
+        run: |
+          chmod +x scripts/push-images.sh
+          scripts/push-images.sh
+  # ===========================================================================
+  # frontend-security  (task 38.2 — npm audit + Snyk for the React frontend)
+  # ===========================================================================
+  # Continuous dependency vulnerability scanning for the Claimant Portal React
+  # frontend (services/claimant-portal). This job is intentionally self-
+  # contained so it can evolve independently of build-and-push and the Python
+  # dependency-security job (task 38.1). It does two complementary scans and
+  # always publishes an audit artifact:
+  #
+  #   1. npm audit --audit-level=high  → services/claimant-portal/npm-audit-report.json
+  #      Fails the job on any HIGH or CRITICAL finding, EXCEPT the exceptions
+  #      that are formally accepted (with rationale + remediation date) in
+  #      scripts/dependencies/EXCEPTIONS.md. Accepted advisories are matched by
+  #      their GHSA advisory ID so the gate reflects the documented risk posture
+  #      instead of failing on already-triaged findings. Any *new* HIGH/CRITICAL
+  #      advisory (not on the allowlist) still fails the build.
+  #
+  #   2. Snyk test (severity threshold high) via the official snyk/actions/node
+  #      Action. The Action is PINNED TO A COMMIT SHA (not @master) to prevent a
+  #      supply-chain attack on the Action itself; the resolved SHA and its tag
+  #      are recorded inline so the pin can be audited and bumped deliberately.
+  #
+  # The npm-audit-report.json is uploaded as a CI artifact on every run
+  # (including every PR) regardless of pass/fail, so reviewers can inspect the
+  # full advisory set.
+  #
+  # Requirements: 19.6
+  frontend-security:
+    name: Frontend dependency security (Claimant Portal)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: services/claimant-portal
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: services/claimant-portal/package-lock.json
+
+      - name: Install dependencies (locked)
+        run: npm ci
+
+      # Always produce the machine-readable audit report so it can be uploaded
+      # as an artifact even when the audit finds nothing. `npm audit` exits
+      # non-zero when vulnerabilities are present, so `|| true` keeps the report
+      # generation from short-circuiting the job here — the actual gate is the
+      # evaluation step below, which understands the accepted-exception allowlist.
+      - name: Run npm audit (generate JSON report)
+        run: |
+          npm audit --audit-level=high --json > npm-audit-report.json || true
+          echo "Generated npm-audit-report.json:"
+          cat npm-audit-report.json
+
+      # Gate on HIGH/CRITICAL findings, allowing only the advisories formally
+      # accepted in scripts/dependencies/EXCEPTIONS.md. The allowlist is keyed on
+      # GHSA advisory IDs (stable identifiers that appear in the npm audit JSON):
+      #   - GHSA-rxv8-25v2-qmq8  react-router-dom 7.1.1 (High, DoS; path not exercised)
+      #   - GHSA-5xrq-8626-4rwp  vitest < 3.2.6      (Critical, dev-only; UI server never started)
+      # Any HIGH/CRITICAL advisory NOT on this list fails the build.
+      - name: Evaluate npm audit against accepted exceptions
+        run: |
+          python3 - <<'PY'
+          import json, sys
+
+          # Advisories formally accepted in scripts/dependencies/EXCEPTIONS.md.
+          # Keep this in sync with that file; adding an entry here without a
+          # corresponding documented exception defeats the purpose of the gate.
+          ACCEPTED = {
+              "GHSA-rxv8-25v2-qmq8": "react-router-dom 7.1.1 (see EXCEPTIONS.md)",
+              "GHSA-5xrq-8626-4rwp": "vitest < 3.2.6, dev-only (see EXCEPTIONS.md)",
+          }
+          BLOCKING = {"high", "critical"}
+
+          with open("npm-audit-report.json") as fh:
+              report = json.load(fh)
+
+          # npm v7+ audit JSON: vulnerabilities keyed by package name, each with
+          # a "via" list whose entries may be advisory objects carrying a "url"
+          # (…/advisories/GHSA-xxxx) and a "severity".
+          def ghsa_ids(entry):
+              for via in entry.get("via", []):
+                  if isinstance(via, dict):
+                      url = via.get("url", "")
+                      sev = (via.get("severity") or "").lower()
+                      gid = url.rstrip("/").rsplit("/", 1)[-1] if "GHSA-" in url else via.get("source")
+                      yield gid, sev, via.get("title", "")
+
+          unaccepted = []
+          accepted_seen = []
+          vulns = report.get("vulnerabilities", {})
+          for pkg, entry in vulns.items():
+              sev = (entry.get("severity") or "").lower()
+              if sev not in BLOCKING:
+                  continue
+              gids = list(ghsa_ids(entry))
+              matched = [g for (g, s, t) in gids if g in ACCEPTED]
+              if matched:
+                  for g in matched:
+                      accepted_seen.append(f"{pkg} [{sev}] {g} -> ACCEPTED ({ACCEPTED[g]})")
+              else:
+                  detail = ", ".join(f"{g or '?'} ({s})" for (g, s, t) in gids) or "no advisory id"
+                  unaccepted.append(f"{pkg} [{sev}]: {detail}")
+
+          if accepted_seen:
+              print("Accepted (documented) exceptions encountered:")
+              for line in accepted_seen:
+                  print(f"  - {line}")
+
+          if unaccepted:
+              print("\nUNACCEPTED HIGH/CRITICAL vulnerabilities (not in EXCEPTIONS.md):")
+              for line in unaccepted:
+                  print(f"  - {line}")
+              print("\nFailing the build. Triage the finding and, if accepted, "
+                    "document it in scripts/dependencies/EXCEPTIONS.md and add its "
+                    "GHSA id to the allowlist in this workflow.")
+              sys.exit(1)
+
+          print("\nNo unaccepted HIGH/CRITICAL npm vulnerabilities. Frontend audit gate passed.")
+          PY
+
+      # Snyk SCA scan. The Action is pinned to a commit SHA (NOT @master) to
+      # defend against a supply-chain compromise of the Action itself.
+      #   snyk/actions/node @ 9adf32b1121593767fc3c057af55b55db032dc04  (tag v1.0.0)
+      - name: Run Snyk test (Node)
+        uses: snyk/actions/node@9adf32b1121593767fc3c057af55b55db032dc04
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: test
+          args: --severity-threshold=high --file=services/claimant-portal/package.json
+
+      # Publish the audit report for every run (including PRs), pass or fail,
+      # so reviewers always have the full advisory set to inspect.
+      - name: Upload npm audit report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-audit-report
+          path: services/claimant-portal/npm-audit-report.json
+          if-no-files-found: error

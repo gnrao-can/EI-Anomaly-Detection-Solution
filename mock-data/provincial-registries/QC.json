@@ -1,0 +1,15 @@
+{
+  "jurisdiction": "QC",
+  "source": "Registraire des entreprises du Quebec (mock fixture)",
+  "records": [
+    {
+      "bn": "900000004RT0001",
+      "legal_name": "Les Constructions Saint-Laurent inc.",
+      "jurisdiction": "QC",
+      "registration_date": "2010-11-03",
+      "corporate_status": "active",
+      "registered_address": "800 Rue Saint-Jacques, Montreal, QC",
+      "registered_postal_code": "H3C 1A3"
+    }
+  ]
+}

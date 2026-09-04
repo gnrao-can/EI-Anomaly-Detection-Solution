@@ -1,0 +1,15 @@
+{
+  "jurisdiction": "AB",
+  "source": "Alberta Corporate Registry (mock fixture)",
+  "records": [
+    {
+      "bn": "900000001RT0001",
+      "legal_name": "Maple Ridge Logistics (Alberta) Inc.",
+      "jurisdiction": "AB",
+      "registration_date": "2018-09-12",
+      "corporate_status": "active",
+      "registered_address": "1200 - 10665 Jasper Avenue, Edmonton, AB",
+      "registered_postal_code": "T5J 3S9"
+    }
+  ]
+}

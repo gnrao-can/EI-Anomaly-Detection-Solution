@@ -1,0 +1,44 @@
+# =============================================================================
+# EI-ADS Kafka Topic Names ConfigMap (Requirement 19.2 — data minimisation
+# support: services publish/subscribe only to the topics they own)
+# =============================================================================
+# Canonical Kafka topic names consumed by producers/consumers so no service
+# hard-codes topic strings. Names are the source of truth from
+# scripts/kafka/topics.json (11 topics) and design.md "Kafka Topic Structure".
+#
+# Individual keys are provided for direct env-var binding (secretKeyRef-style
+# configMapKeyRef), and KAFKA_ALL_TOPICS gives the full comma-separated list
+# for tooling that iterates topics. Topic *provisioning* (partitions,
+# replication, retention) is done by scripts/kafka/create-topics.sh from
+# topics.json — this ConfigMap only distributes the names to running services.
+#
+# Namespace: ei-ads.
+#
+# NOTE (sandbox): validated for YAML well-formedness only. NOT applied to a
+# live cluster (none available in the sandbox).
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ei-ads-kafka-topics
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: event-bus-config
+data:
+  # --- Intake / normalisation topics (retention 7d) ---
+  KAFKA_TOPIC_CLAIM_RECEIVED: "claim.received"
+  KAFKA_TOPIC_ROE_RECEIVED: "roe.received"
+  # --- Per-engine indicator topics (retention 30d) ---
+  KAFKA_TOPIC_INDICATORS_REPETITIVE_PATTERN: "indicators.repetitive-pattern"
+  KAFKA_TOPIC_INDICATORS_GEOGRAPHIC_ANOMALY: "indicators.geographic-anomaly"
+  KAFKA_TOPIC_INDICATORS_FRAUD_RING: "indicators.fraud-ring"
+  KAFKA_TOPIC_INDICATORS_HISTORY_INCONSISTENCY: "indicators.history-inconsistency"
+  KAFKA_TOPIC_INDICATORS_DOCUMENT_FORGERY: "indicators.document-forgery"
+  KAFKA_TOPIC_INDICATORS_REGIONAL_ANALYSIS: "indicators.regional-analysis"
+  # --- Scoring / outcome topics ---
+  KAFKA_TOPIC_CLAIM_SCORED: "claim.scored"           # retention 90d
+  KAFKA_TOPIC_CLAIM_ESCALATED: "claim.escalated"     # retention 90d
+  KAFKA_TOPIC_OUTCOME_FEEDBACK: "outcome.feedback"   # retention 365d
+  # --- Full topic list (comma-separated) for iterating tooling ---
+  KAFKA_ALL_TOPICS: "claim.received,roe.received,indicators.repetitive-pattern,indicators.geographic-anomaly,indicators.fraud-ring,indicators.history-inconsistency,indicators.document-forgery,indicators.regional-analysis,claim.scored,claim.escalated,outcome.feedback"

@@ -1,0 +1,15 @@
+{
+  "province": "NB",
+  "owned_ratio": 0.72,
+  "classes": ["PASSENGER", "TRUCK"],
+  "record": {
+    "vehicle_ownership_status": "OWNED",
+    "vehicle_class": "PASSENGER",
+    "vin": "SYNNB000004",
+    "vehicle_history": ["registered", "renewed"],
+    "insurance_provider": "NB Assurance",
+    "lien_balance": 8100.0,
+    "registered_owner_name": "Synthetic Owner NB",
+    "registration_expiry": "2026-07-01"
+  }
+}

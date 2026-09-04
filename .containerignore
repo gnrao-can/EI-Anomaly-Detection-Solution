@@ -1,0 +1,52 @@
+# ============================================================
+# .containerignore — root-level build context exclusions
+# Applied when building all service images from the monorepo root.
+# ============================================================
+
+# Python artefacts
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/.hypothesis
+
+# Test code — never in production images
+tests/
+**/test_*.py
+**/*_test.py
+
+# Mock / dev data — never in production images
+mock-data/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+**/*.key
+**/*.pem
+**/*.crt
+**/*.p12
+**/*.pfx
+
+# Dev tooling
+.git/
+.gitignore
+.kiro/
+demo/
+docs/
+sbom/
+scripts/
+*.md
+!services/*/README.md
+
+# OS artefacts
+.DS_Store
+**/.DS_Store
+Thumbs.db
+
+# CI/CD configs (not needed at runtime)
+.github/
+.tekton/

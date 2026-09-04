@@ -1,0 +1,95 @@
+# EI-ADS aggregate lock file — audited by pip-audit + safety.
+#
+# This is the single, canonical, fully-pinned dependency set that the
+# dependency-security gate scans (task 38.1, Requirement 19.6). It is derived
+# from the authoritative root manifest `pyproject.toml` plus the shared
+# observability pins in scripts/dependencies/requirements-shared.txt.
+#
+# Policy: zero CVEs with CVSS >= 7.0. Any accepted deviation MUST be recorded in
+# scripts/dependencies/EXCEPTIONS.md with a GitHub issue reference and a
+# remediation date no more than 30 days out, and ignored explicitly in
+# scripts/dependencies/safety-policy.yml.
+#
+# Scanned by:
+#   pip-audit --strict --vulnerability-service osv -r requirements.lock
+#   safety check --full-report --policy-file scripts/dependencies/safety-policy.yml
+#
+# Regenerate after editing pyproject.toml or the per-service requirements-*.txt
+# manifests; keep versions in sync with scripts/dependencies/python-versions.toml.
+#
+# Python 3.11 ONLY: this set is pinned to the 3.11 stack (torch==2.5.1 et al.)
+# and is NOT installable on Python 3.13+ (no wheels — pip aborts before anything
+# installs). For local core-service development use
+# scripts/dependencies/requirements-core.txt and see the
+# "Local development on Python 3.11" section of scripts/dependencies/README.md.
+
+# --- FastAPI stack --------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.2.1
+httpx==0.28.1
+asyncpg==0.30.0
+aiokafka==0.12.0
+redis==5.2.1
+python-multipart==0.0.9
+python-jose[cryptography]==3.3.0
+
+# --- Observability --------------------------------------------------------
+structlog==24.4.0
+python-json-logger==2.0.7
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.0
+opentelemetry-sdk==1.29.0
+opentelemetry-api==1.29.0
+opentelemetry-exporter-otlp-proto-grpc==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-asyncpg==0.50b0
+opentelemetry-instrumentation-aiohttp-client==0.50b0
+
+# --- ML / AI --------------------------------------------------------------
+xgboost==2.1.3
+shap==0.46.0
+scikit-learn==1.6.0
+numpy==2.1.3
+pandas==2.2.3
+joblib==1.4.2
+torch==2.5.1
+torch-geometric==2.6.1
+transformers==4.47.1
+langchain==0.3.12
+langchain-community==0.3.12
+llama-cpp-python==0.3.4
+sentence-transformers==3.3.1
+chromadb==0.5.23
+prophet==1.1.6
+networkx==3.4.2
+
+# --- Document AI ----------------------------------------------------------
+pypdf==5.1.0
+pdfminer.six==20231228
+cryptography==44.0.0
+pillow==11.0.0
+
+# --- Data adapters --------------------------------------------------------
+zeep==4.3.1
+lxml==5.3.0
+clickhouse-connect==0.8.12
+neo4j==5.27.0
+
+# --- Dev / Test / Security tooling ---------------------------------------
+pytest==8.3.4
+pytest-asyncio==0.24.0
+pytest-cov==6.0.0
+hypothesis==6.115.0
+pytest-mock==3.14.0
+fakeredis==2.26.1
+aioresponses==0.7.7
+black==24.10.0
+ruff==0.8.4
+mypy==1.13.0
+testcontainers==4.9.0
+locust==2.32.3
+schemathesis==3.39.4
+pip-audit==2.7.3
+safety==3.2.11

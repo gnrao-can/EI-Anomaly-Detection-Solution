@@ -1,0 +1,15 @@
+{
+  "province": "SK",
+  "owned_ratio": 0.78,
+  "classes": ["PASSENGER", "FARM"],
+  "record": {
+    "vehicle_ownership_status": "OWNED",
+    "vehicle_class": "FARM",
+    "vin": "SYNSK000010",
+    "vehicle_history": ["registered", "renewed"],
+    "insurance_provider": "SGI",
+    "lien_balance": 18300.75,
+    "registered_owner_name": "Synthetic Owner SK",
+    "registration_expiry": "2026-02-28"
+  }
+}

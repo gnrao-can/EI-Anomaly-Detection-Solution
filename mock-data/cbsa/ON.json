@@ -1,0 +1,11 @@
+{
+  "province": "ON",
+  "description": "Deterministic Ontario travel fixture. Contains one qualifying absence (>= 10 days) and one non-qualifying short trip (9 days) to exercise the 9-vs-10-day boundary.",
+  "port": "YYZ",
+  "records": [
+    { "direction": "EXIT",  "crossing_date": "2024-02-01", "port_of_entry": "YYZ" },
+    { "direction": "ENTRY", "crossing_date": "2024-02-11", "port_of_entry": "YYZ" },
+    { "direction": "EXIT",  "crossing_date": "2024-05-01", "port_of_entry": "YYZ" },
+    { "direction": "ENTRY", "crossing_date": "2024-05-10", "port_of_entry": "YYZ" }
+  ]
+}

@@ -1,0 +1,43 @@
+# EI-ADS core-services LOCAL-DEV subset — Python 3.11 ONLY.
+#
+# Minimal runtime set to boot the four core services locally without the
+# ML/LLM stack: claim-intake, roe-adapter, ensemble-scorer, graph-service.
+# It intentionally EXCLUDES the heavy ML/LLM dependencies (no torch,
+# transformers, shap, xgboost, llama-cpp-python, prophet, sentence-transformers,
+# chromadb, langchain, torch-geometric).
+#
+# The full `requirements.lock` at the repo root remains the authoritative,
+# canonical dependency set and is what the container images build. These pins
+# MUST stay in sync with requirements.lock (strict subset, exact versions).
+#
+# Python 3.11 only (container base registry.access.redhat.com/ubi9/python-311).
+# See the "Local development on Python 3.11" section of this directory's
+# README.md for the full workflow.
+
+# --- FastAPI stack --------------------------------------------------------
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.3
+pydantic-settings==2.2.1
+httpx==0.28.1
+asyncpg==0.30.0
+aiokafka==0.12.0
+redis==5.2.1
+python-multipart==0.0.9
+python-jose[cryptography]==3.3.0
+
+# --- Data adapters --------------------------------------------------------
+neo4j==5.27.0
+clickhouse-connect==0.8.12
+networkx==3.4.2          # required by graph-service/community.py at import time
+
+# --- Observability --------------------------------------------------------
+structlog==24.4.0
+python-json-logger==2.0.7
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.0
+
+# --- Numeric --------------------------------------------------------------
+# ensemble-scorer is guarded to BOOT without numpy, but scoring (features/shap
+# paths) and its unit tests require it — so it is part of the core subset.
+numpy==2.1.3

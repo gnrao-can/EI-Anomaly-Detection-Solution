@@ -1,0 +1,61 @@
+# ============================================================
+# llm-service — LLM Service (Llama 3.1 / LangChain)
+# Base: registry.access.redhat.com/ubi9/python-311 (pinned tag)
+# OpenShift-compatible, rootless (USER 1001)
+# GPU node pool: NVIDIA A100 (for Llama 3.1 70B GGUF 4-bit)
+#
+# Build context is the MONOREPO ROOT so the shared/ package and the
+# service source are both available (see scripts/build-images.sh, task 35.2):
+#   podman build -f services/llm-service/Containerfile .
+# ============================================================
+
+FROM registry.access.redhat.com/ubi9/python-311:9.5 AS builder
+
+WORKDIR /build
+
+RUN pip install --no-cache-dir --upgrade pip==24.3.1 poetry==1.8.5
+
+COPY pyproject.toml ./
+COPY shared/ ./shared/
+
+# llama-cpp-python requires C++ build tools for compilation
+RUN dnf install -y --nodocs gcc gcc-c++ make cmake \
+    && dnf clean all
+
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --without dev \
+    && pip install --no-cache-dir -e ./shared
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:9.5 AS runtime
+
+LABEL org.opencontainers.image.title="ei-ads-llm-service" \
+      org.opencontainers.image.description="EI-ADS LLM Service (Llama 3.1 + LangChain)" \
+      org.opencontainers.image.vendor="ESDC EI-ADS Team"
+
+WORKDIR /app
+
+# Install shared C++ runtime libs needed by llama-cpp-python
+RUN dnf install -y --nodocs libstdc++ \
+    && dnf clean all
+
+COPY --from=builder /usr/lib/python3.11/site-packages /usr/lib/python3.11/site-packages
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+
+COPY --from=builder /build/shared ./shared
+COPY services/llm-service/ ./
+
+# Model weights are mounted at runtime via a PersistentVolumeClaim
+# VOLUME ["/app/models"]
+
+USER 1001
+
+EXPOSE 8005
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
+    CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8005/healthz', timeout=2).status==200 else 1)"]
+
+# Single worker: the Llama model is loaded per process; scale via HPA, not workers.
+ENTRYPOINT ["uvicorn"]
+CMD ["main:app", "--host", "0.0.0.0", "--port", "8005", "--workers", "1"]

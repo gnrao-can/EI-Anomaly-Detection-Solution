@@ -1,0 +1,79 @@
+---
+# Detection engines — deny egress to the public internet.
+# Requirements: 19.1 (Protected B; only authorised access to PII), 19.2 (data
+#   minimisation — engines must not reach arbitrary external endpoints).
+# Design: Infrastructure Design — namespace ei-ads-prod; TLS 1.3 intra-cluster.
+#
+# Strategy (two NetworkPolicies working together):
+#   1. detection-engines-default-deny-egress: selects all six detection engines
+#      and sets policyTypes: [Egress] with an EMPTY egress list. In Kubernetes,
+#      once ANY egress policy selects a pod, all egress is denied by default and
+#      only explicitly-allowed traffic is permitted. An empty egress list is a
+#      hard default-deny for every selected pod.
+#   2. detection-engines-allow-intra-cluster-and-dns: re-permits the traffic the
+#      engines legitimately need — cluster-internal pods (same namespace) and DNS
+#      to kube-dns — while STILL denying 0.0.0.0/0 public egress, because no rule
+#      below allows an external ipBlock.
+#
+# The six detection engines are selected by the label the 36.1 Deployments set:
+#   app.kubernetes.io/component: detection-engine
+# (repetitive-pattern, geographic-anomaly, fraud-ring, history-inconsistency,
+#  document-forgery, regional-analysis). This is verified against
+#  k8s/deployments/*.yaml.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: detection-engines-default-deny-egress
+  namespace: ei-ads-prod
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: network-policy
+    ei-ads/policy: detection-engine-egress-lockdown
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: ei-ads
+      app.kubernetes.io/component: detection-engine
+  policyTypes:
+    - Egress
+  # Empty egress list => default-deny ALL egress (including 0.0.0.0/0 public
+  # internet) for every detection engine pod.
+  egress: []
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: detection-engines-allow-intra-cluster-and-dns
+  namespace: ei-ads-prod
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: network-policy
+    ei-ads/policy: detection-engine-egress-lockdown
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: ei-ads
+      app.kubernetes.io/component: detection-engine
+  policyTypes:
+    - Egress
+  egress:
+    # (a) Allow egress to any pod in the ei-ads-prod namespace (Kafka, Redis,
+    #     Neo4j, graph-service, llm-service, ensemble-scorer, orchestrator).
+    #     namespaceSelector matches the ei-ads-prod namespace by the standard
+    #     kubernetes.io/metadata.name label injected by the API server.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ei-ads-prod
+    # (b) Allow DNS resolution to kube-dns / CoreDNS in kube-system.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+  # NOTE: no `ipBlock` rule with cidr 0.0.0.0/0 appears anywhere, so egress to
+  # the public internet remains denied for all six detection engines.

@@ -1,0 +1,40 @@
+# =============================================================================
+# EI-ADS Engine Timeout Budgets ConfigMap
+# =============================================================================
+# Per-component time budgets from design.md "Time Budget Allocation". The
+# engines run concurrently; the engine phase is bounded by the slowest engine
+# (Fraud Ring, 800 ms), and the end-to-end target is <= 2000 ms per claim at
+# 500 concurrent claims.
+#
+# Each detection engine reads its own *_TIMEOUT_MS budget and enforces it as a
+# hard deadline (emitting a partial/timed-out Indicator rather than blowing the
+# pipeline budget). Values are milliseconds.
+#
+# Namespace: ei-ads.
+#
+# NOTE (sandbox): validated for YAML well-formedness only. NOT applied to a
+# live cluster (none available in the sandbox).
+# -----------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ei-ads-engine-timeout-budgets
+  namespace: ei-ads
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+    app.kubernetes.io/component: pipeline-config
+data:
+  # --- Intake / orchestration budgets ---
+  CLAIM_INTAKE_PUBLISH_TIMEOUT_MS: "500"
+  PIPELINE_INITIATION_TIMEOUT_MS: "100"
+  # --- Per-engine budgets (engines run in parallel) ---
+  REPETITIVE_PATTERN_ENGINE_TIMEOUT_MS: "400"
+  GEOGRAPHIC_ANOMALY_ENGINE_TIMEOUT_MS: "600"
+  FRAUD_RING_ENGINE_TIMEOUT_MS: "800"
+  HISTORY_INCONSISTENCY_ENGINE_TIMEOUT_MS: "500"
+  DOCUMENT_FORGERY_ENGINE_TIMEOUT_MS: "700"
+  REGIONAL_ANALYSIS_ENGINE_TIMEOUT_MS: "500"
+  # --- Post-engine scoring budget ---
+  ENSEMBLE_SCORER_TIMEOUT_MS: "300"
+  # --- End-to-end target (bounded by slowest engine, not the sum) ---
+  END_TO_END_TARGET_MS: "2000"

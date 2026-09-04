@@ -1,0 +1,79 @@
+# EI-ADS — Canonical pinned Python dependency versions
+# All versions are exact (no ranges). Updated: 2026-09-01.
+# Source of truth: scripts/dependencies/README.md
+
+[runtime.fastapi_stack]
+fastapi = "0.115.6"
+uvicorn = "0.32.1"
+pydantic = "2.10.3"
+pydantic-settings = "2.2.1"
+httpx = "0.28.1"
+asyncpg = "0.30.0"
+aiokafka = "0.12.0"
+redis = "5.2.1"
+
+[runtime.observability]
+# OpenTelemetry distributed tracing (task 32.1 / Req 21.5). Pinned exact.
+opentelemetry-sdk = "1.29.0"
+opentelemetry-api = "1.29.0"
+opentelemetry-exporter-otlp-proto-grpc = "1.29.0"
+opentelemetry-instrumentation-fastapi = "0.50b0"
+opentelemetry-instrumentation-asyncpg = "0.50b0"
+opentelemetry-instrumentation-aiohttp-client = "0.50b0"
+
+[runtime.ml_ai]
+xgboost = "2.1.3"
+shap = "0.46.0"
+scikit-learn = "1.6.0"
+torch = "2.5.1"
+torch-geometric = "2.6.1"
+transformers = "4.47.1"
+langchain = "0.3.12"
+langchain-community = "0.3.12"
+llama-cpp-python = "0.3.4"
+sentence-transformers = "3.3.1"
+prophet = "1.1.6"
+networkx = "3.4.2"
+
+[runtime.document_ai]
+pypdf = "5.1.0"
+"pdfminer.six" = "20231228"
+cryptography = "44.0.0"
+pillow = "11.0.0"
+
+[runtime.data_adapters]
+zeep = "4.3.1"
+lxml = "5.3.0"
+clickhouse-connect = "0.8.12"
+neo4j = "5.27.0"
+
+[runtime.observability]
+# Prometheus metrics + FastAPI /metrics instrumentation (task 31.1).
+# Imported behind a guard in shared/metrics.py so services still start when
+# these are absent (e.g. slim sandbox).
+prometheus-client = "0.21.1"
+prometheus-fastapi-instrumentator = "7.0.0"
+
+[dev_test]
+pytest = "8.3.4"
+hypothesis = "6.115.0"
+testcontainers = "4.9.0"
+locust = "2.32.3"
+schemathesis = "3.39.4"
+pip-audit = "2.7.3"
+safety = "3.2.11"
+
+# --- Supply-chain SBOM / scan tooling (Req 19.6) ----------------------------
+# These are NOT pip packages: Syft and Grype are standalone Go binaries from
+# Anchore, installed in CI / on the build host from the official release
+# (e.g. `curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+#        | sh -s -- -b /usr/local/bin v1.18.1`). We record the *required* pinned
+# version here so the version is a single source of truth, tracked and reviewed
+# like every other dependency. scripts/build-images.sh reads SYFT_VERSION /
+# GRYPE_VERSION from the environment (falling back to these pins) and, in CI,
+# fails if the installed binary version does not match.
+[tool.sbom]
+syft = "1.18.1"    # task 39.1 — per-image CycloneDX + SPDX SBOM generation
+grype = "0.87.0"   # task 39.2 — OSV vulnerability scan of each SBOM
+skopeo = "1.16.1"  # task 39.3 — embed SBOM digest as an OCI annotation
+oras = "1.2.0"     # task 39.4 — push each CycloneDX SBOM as an OCI artifact

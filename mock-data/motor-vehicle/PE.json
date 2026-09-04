@@ -1,0 +1,15 @@
+{
+  "province": "PE",
+  "owned_ratio": 0.74,
+  "classes": ["PASSENGER"],
+  "record": {
+    "vehicle_ownership_status": "OWNED",
+    "vehicle_class": "PASSENGER",
+    "vin": "SYNPE000008",
+    "vehicle_history": ["registered"],
+    "insurance_provider": "PEI Assurance",
+    "lien_balance": 2200.0,
+    "registered_owner_name": "Synthetic Owner PE",
+    "registration_expiry": "2026-04-20"
+  }
+}

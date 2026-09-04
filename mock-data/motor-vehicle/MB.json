@@ -1,0 +1,15 @@
+{
+  "province": "MB",
+  "owned_ratio": 0.75,
+  "classes": ["PASSENGER", "FARM"],
+  "record": {
+    "vehicle_ownership_status": "OWNED",
+    "vehicle_class": "FARM",
+    "vin": "SYNMB000003",
+    "vehicle_history": ["registered"],
+    "insurance_provider": "MPI",
+    "lien_balance": 3400.5,
+    "registered_owner_name": "Synthetic Owner MB",
+    "registration_expiry": "2026-01-31"
+  }
+}

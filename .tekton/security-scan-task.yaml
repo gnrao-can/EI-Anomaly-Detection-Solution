@@ -1,0 +1,90 @@
+# EI-ADS OpenShift-native dependency-security gate (Tekton).
+#
+# Equivalent to the `dependency-security` job in .github/workflows/ci.yml, for
+# clusters that run OpenShift Pipelines (Tekton) instead of GitHub Actions.
+#
+# The Task runs two independent Python supply-chain scanners against the
+# canonical, fully-pinned requirements.lock:
+#   1. pip-audit against the OSV database (--strict)
+#   2. safety against the Safety DB, driven by scripts/dependencies/safety-policy.yml
+#
+# Either scanner reporting a CVE with CVSS >= 7.0 exits non-zero and fails the
+# TaskRun, which fails the PipelineRun. Wire this Task to run BEFORE the
+# build-and-push Task (via runAfter) so no vulnerable dependency can reach the
+# internal OpenShift registry. Accepted exceptions live in
+# scripts/dependencies/EXCEPTIONS.md and are encoded in safety-policy.yml.
+#
+# Requirements: 19.6
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: dependency-security
+  labels:
+    app.kubernetes.io/part-of: ei-ads
+spec:
+  description: >-
+    Audit the pinned Python dependency set (requirements.lock) with pip-audit
+    (OSV) and safety (Safety DB). Fails on any CVE with CVSS >= 7.0. Intended to
+    run before build-and-push so vulnerable dependencies never reach the
+    registry.
+  params:
+    - name: pip-audit-version
+      type: string
+      description: Pinned pip-audit version.
+      default: "2.7.3"
+    - name: safety-version
+      type: string
+      description: Pinned safety version.
+      default: "3.2.11"
+    - name: requirements-file
+      type: string
+      description: Path (relative to the repo root) of the lock file to scan.
+      default: requirements.lock
+    - name: safety-policy-file
+      type: string
+      description: Path to the safety policy file.
+      default: scripts/dependencies/safety-policy.yml
+  workspaces:
+    - name: source
+      description: Workspace containing the cloned repository (under ei-ads/).
+  steps:
+    - name: install-scanners
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      workingDir: $(workspaces.source.path)/ei-ads
+      env:
+        - name: PIP_AUDIT_VERSION
+          value: $(params.pip-audit-version)
+        - name: SAFETY_VERSION
+          value: $(params.safety-version)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        python -m pip install --upgrade pip
+        pip install "pip-audit==${PIP_AUDIT_VERSION}" "safety==${SAFETY_VERSION}"
+        pip-audit --version
+        safety --version
+    # Gate 1 — pip-audit (OSV). --strict fails on any vulnerable dependency.
+    - name: pip-audit
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      workingDir: $(workspaces.source.path)/ei-ads
+      env:
+        - name: REQUIREMENTS_FILE
+          value: $(params.requirements-file)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        pip-audit --strict --vulnerability-service osv -r "${REQUIREMENTS_FILE}"
+    # Gate 2 — safety, using the committed policy file.
+    - name: safety
+      image: registry.access.redhat.com/ubi9/python-311:latest
+      workingDir: $(workspaces.source.path)/ei-ads
+      env:
+        - name: REQUIREMENTS_FILE
+          value: $(params.requirements-file)
+        - name: SAFETY_POLICY_FILE
+          value: $(params.safety-policy-file)
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+        safety check --full-report --policy-file "${SAFETY_POLICY_FILE}" -r "${REQUIREMENTS_FILE}"

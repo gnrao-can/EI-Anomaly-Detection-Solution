@@ -1,0 +1,17 @@
+# ROE Adapter (ROE Intake) dependencies
+# Handles Record of Employment ingestion via REST and SOAP from ROE Web
+# SOAP support provided by zeep + lxml
+# All versions are exact-pinned (==) for Government of Canada production compliance
+# Last reviewed: 2024
+# Vulnerability policy: zero CVEs with CVSS >= 7.0 (validated via pip-audit + safety)
+
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+zeep==4.2.1
+lxml==5.2.2
+httpx==0.27.0
+aiokafka==0.11.0
+asyncpg==0.29.0
+pydantic==2.7.1
+pydantic-settings==2.2.1
+structlog==24.2.0

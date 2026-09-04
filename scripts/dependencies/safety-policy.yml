@@ -1,0 +1,39 @@
+# EI-ADS Safety policy (safety==3.2.11) — zero HIGH/CRITICAL CVEs allowed.
+#
+# Consumed by:
+#   safety check --full-report --policy-file scripts/dependencies/safety-policy.yml
+#
+# Requirement 19.6: no dependency may ship a CVE with CVSS >= 7.0. Every accepted
+# deviation MUST be:
+#   1. listed under `security.ignore-vulnerabilities` below (keyed by CVE / advisory id),
+#   2. documented in scripts/dependencies/EXCEPTIONS.md with a GitHub issue reference,
+#   3. given a remediation date no more than 30 days from acceptance
+#      (encoded as the `expires` field so the exception auto-lapses).
+#
+# The accepted-exceptions list is INITIALLY EMPTY — the gate fails on any finding.
+version: "3.0"
+
+security:
+  # Report and fail on every severity; nothing is filtered out by CVSS band.
+  ignore-cvss-severity-below: 0
+  # Unpinned requirements are a policy violation on their own.
+  ignore-unpinned-requirements: false
+
+  # Accepted CVE exceptions. Initially empty: no exceptions are granted.
+  # To add one, uncomment the template, fill in the advisory id, and mirror the
+  # entry in EXCEPTIONS.md (issue ref + remediation date <= 30 days).
+  #
+  # ignore-vulnerabilities:
+  #   "<CVE-or-advisory-id>":
+  #     reason: "why the vulnerable code path is not exercised (see EXCEPTIONS.md)"
+  #     expires: "YYYY-MM-DD"   # <= 30 days from acceptance
+  ignore-vulnerabilities: {}
+
+# Fail the run when any vulnerability that is not explicitly ignored is found.
+report:
+  dependency-vulnerabilities:
+    enabled: true
+    auto-ignore-in-report:
+      python:
+        environment-results: false
+        unpinned-requirements: false

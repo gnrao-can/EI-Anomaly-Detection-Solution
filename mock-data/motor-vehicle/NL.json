@@ -1,0 +1,15 @@
+{
+  "province": "NL",
+  "owned_ratio": 0.68,
+  "classes": ["PASSENGER"],
+  "record": {
+    "vehicle_ownership_status": "NONE",
+    "vehicle_class": null,
+    "vin": null,
+    "vehicle_history": [],
+    "insurance_provider": null,
+    "lien_balance": 0.0,
+    "registered_owner_name": "Synthetic Owner NL",
+    "registration_expiry": null
+  }
+}

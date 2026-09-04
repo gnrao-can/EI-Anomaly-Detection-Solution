@@ -1,0 +1,15 @@
+{
+  "jurisdiction": "BC",
+  "source": "BC Registries and Online Services (mock fixture)",
+  "records": [
+    {
+      "bn": "900000003RT0001",
+      "legal_name": "Pacific Coast Fisheries Ltd.",
+      "jurisdiction": "BC",
+      "registration_date": "2012-03-22",
+      "corporate_status": "active",
+      "registered_address": "555 West Hastings Street, Vancouver, BC",
+      "registered_postal_code": "V6B 4N6"
+    }
+  ]
+}

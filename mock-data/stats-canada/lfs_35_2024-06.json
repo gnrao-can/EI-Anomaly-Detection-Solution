@@ -1,0 +1,17 @@
+{
+  "source_api_version": "98100424",
+  "table_id": "98100424",
+  "description": "Labour Force Survey (LFS) — Toronto, Ontario (region 35), June 2024.",
+  "records": [
+    {
+      "reference_month": "2024-06",
+      "esdc_region_code": "35",
+      "region_name_en": "Toronto, Ontario",
+      "region_name_fr": "Toronto, Ontario",
+      "unemployment_rate": 7.1284,
+      "employment_rate": 60.5521,
+      "participation_rate": 65.2013,
+      "national_unemployment_rate": 6.4001
+    }
+  ]
+}

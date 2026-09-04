@@ -1,0 +1,2110 @@
+{
+  "pbtResults": {
+    "7.4 Write property test for zero Indicators (P8)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788389571482
+    },
+    "7.3 Write property test for SHAP additivity (P7)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788389626043
+    },
+    "7.5 Write property test for score monotonicity (P9)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788389607865
+    },
+    "9.3 Write property test for community partition completeness (P3)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788389790515
+    },
+    "8.3 Write property test for bilingual word count balance (P15)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788391387039
+    },
+    "18.2 Write property test for Stats Canada adapter round-trip (P10)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788394616934
+    },
+    "22.2 Write property test for GeoNames geodesic invariants (P11)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788394622925
+    },
+    "24.2 Write property test for Job Bank adapter round-trip (P12)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788394660931
+    },
+    "12.3 Write property test for geodesic distance symmetry and self-distance (P2)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788398024606
+    },
+    "11.3 Write property test for sequential pattern detection completeness (P1)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788398051368
+    },
+    "13.3 Write property test for community partition completeness (P3) — wire to Graph Service": {
+      "status": "passed",
+      "lastRunTimestamp": 1788398084543
+    },
+    "14.3 Write property test for zero earnings discrepancy invariant (P4)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788398270220
+    },
+    "16.3 Write property test for zero rate deviation invariant (P13)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788398337139
+    },
+    "16.4 Write property test for time-series forecast calibration (P14)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788399475175
+    },
+    "15.4 Write property test for authenticated document zero indicators (P5)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788399752937
+    },
+    "15.5 Write property test for OCR round-trip fidelity (P6)": {
+      "status": "passed",
+      "lastRunTimestamp": 1788399756888
+    }
+  },
+  "executionHistory": {
+    "1.1 Create top-level directory layout: `services/`, `shared/`, `tests/`, `k8s/`, `mock-data/`, `scripts/`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310505
+      },
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367321015
+      },
+      {
+        "executionId": "9c92972a-1018-450f-81c4-8703c5d60970",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367890635
+      },
+      {
+        "executionId": "9c92972a-1018-450f-81c4-8703c5d60970",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367904074
+      },
+      {
+        "executionId": "5d87b2a0-3e4f-4abf-ab94-114518ced87d",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788370452700
+      },
+      {
+        "executionId": "5d87b2a0-3e4f-4abf-ab94-114518ced87d",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788372728146
+      }
+    ],
+    "1.2 Define all canonical data models in `shared/models.py`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310616
+      },
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367323322
+      },
+      {
+        "executionId": "9c92972a-1018-450f-81c4-8703c5d60970",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367891383
+      },
+      {
+        "executionId": "9c92972a-1018-450f-81c4-8703c5d60970",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367904908
+      },
+      {
+        "executionId": "5d87b2a0-3e4f-4abf-ab94-114518ced87d",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788372730986
+      }
+    ],
+    "1.3 Implement SIN validation utilities in `shared/validation.py`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310645
+      },
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367325591
+      },
+      {
+        "executionId": "9c92972a-1018-450f-81c4-8703c5d60970",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367892160
+      },
+      {
+        "executionId": "9c92972a-1018-450f-81c4-8703c5d60970",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367905774
+      },
+      {
+        "executionId": "316f49a3-1960-4411-9e61-5b02107d5dba",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788373975201
+      },
+      {
+        "executionId": "316f49a3-1960-4411-9e61-5b02107d5dba",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788380853500
+      }
+    ],
+    "1.4 Create a pinned dependency manifest for all Python services in `scripts/dependencies/`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310674
+      },
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367327963
+      },
+      {
+        "executionId": "9c92972a-1018-450f-81c4-8703c5d60970",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367893212
+      },
+      {
+        "executionId": "9c92972a-1018-450f-81c4-8703c5d60970",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367906604
+      },
+      {
+        "executionId": "2c1af39d-f418-4e42-b47c-e15f86752aab",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788380941026
+      },
+      {
+        "executionId": "2c1af39d-f418-4e42-b47c-e15f86752aab",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788381190691
+      }
+    ],
+    "2.1 Create PostgreSQL schema migration scripts in `scripts/migrations/`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310722
+      },
+      {
+        "executionId": "153a6b9e-b349-4971-9405-8d9ad56b93e7",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788381242877
+      },
+      {
+        "executionId": "153a6b9e-b349-4971-9405-8d9ad56b93e7",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788381575290
+      }
+    ],
+    "2.2 Create ClickHouse schema scripts in `scripts/clickhouse/`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310752
+      },
+      {
+        "executionId": "432eb302-e8a2-4bcd-ae49-2b3fbf24ee51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788381607365
+      },
+      {
+        "executionId": "40034d20-39c9-44e6-b13e-ba388826cf21",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788383213268
+      }
+    ],
+    "2.3 Create Kafka topic configuration in `scripts/kafka/`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310781
+      },
+      {
+        "executionId": "552b0ba0-cd0e-4b5a-8e62-aaabf808f08d",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788383720456
+      }
+    ],
+    "2.4 Create Redis cluster configuration in `scripts/redis/`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310819
+      },
+      {
+        "executionId": "552b0ba0-cd0e-4b5a-8e62-aaabf808f08d",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788383724295
+      },
+      {
+        "executionId": "552b0ba0-cd0e-4b5a-8e62-aaabf808f08d",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384077703
+      }
+    ],
+    "3. Checkpoint — Verify infrastructure scripts and shared models": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310847
+      },
+      {
+        "executionId": "7cfe27d1-6f3d-4997-b5c4-16a9f4b58abb",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384137177
+      },
+      {
+        "executionId": "7cfe27d1-6f3d-4997-b5c4-16a9f4b58abb",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384361836
+      }
+    ],
+    "4.1 Create the FastAPI application skeleton with GCKey OAuth 2.0 middleware": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310873
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384460455
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385161835
+      }
+    ],
+    "4.2 Implement claim validation and persistence logic": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310899
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385205277
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385718080
+      }
+    ],
+    "4.3 Implement Kafka publish and transactional rollback": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310925
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389439217
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389645869
+      }
+    ],
+    "4.4 Write unit tests for claim intake validation and persistence": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310959
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389441099
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389647331
+      }
+    ],
+    "5.1 Create the FastAPI app with REST (JSON/XML) and SOAP 1.1/1.2 endpoints": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367310998
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384462334
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385163269
+      }
+    ],
+    "5.2 Write unit tests for ROE normalisation": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311031
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385199409
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385719372
+      }
+    ],
+    "6.1 Create the Kafka consumer that correlates `claim.received` and `roe.received` events": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311059
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788391483297
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392120716
+      }
+    ],
+    "6.2 Implement parallel engine dispatch using `asyncio.TaskGroup`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311085
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392126228
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392491178
+      }
+    ],
+    "6.3 Wire Ensemble Scorer call and final event publication": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311113
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392127295
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392492835
+      }
+    ],
+    "6.4 Write integration tests for the orchestrator event flow": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311144
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393809029
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394475340
+      }
+    ],
+    "7.1 Implement XGBoost and Isolation Forest feature engineering and scoring": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311170
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384464620
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385165179
+      }
+    ],
+    "7.2 Implement SHAP TreeExplainer attribution": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311201
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385200700
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385720784
+      }
+    ],
+    "7.3 Write property test for SHAP additivity (P7)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311232
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389445498
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389648715
+      }
+    ],
+    "7.4 Write property test for zero Indicators (P8)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311260
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389442496
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389650613
+      }
+    ],
+    "7.5 Write property test for score monotonicity (P9)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311291
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389443958
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389651747
+      }
+    ],
+    "8.1 Implement LangChain + Llama 3.1 chain with RAG pipeline": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311322
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384465125
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385166509
+      }
+    ],
+    "8.2 Implement bilingual explanation generation endpoint": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311353
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385202152
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385722183
+      }
+    ],
+    "8.3 Write property test for bilingual word count balance (P15)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311381
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389658443
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788391411586
+      }
+    ],
+    "9.1 Implement Neo4j graph construction and upsert logic": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311407
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384466871
+      },
+      {
+        "executionId": "d0e129ea-7d44-4bae-87e9-c15094afcb51",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385167984
+      }
+    ],
+    "9.2 Implement community detection with Louvain + GraphSAGE GNN": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311436
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385204005
+      },
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385725434
+      }
+    ],
+    "9.3 Write property test for community partition completeness (P3)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311465
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389659483
+      },
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788390222446
+      }
+    ],
+    "10. Checkpoint — Verify all core services start and respond to health checks": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311498
+      }
+    ],
+    "11.1 Implement 60-month claim history retrieval and sequential pattern mining": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311526
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394496148
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395000607
+      }
+    ],
+    "11.2 Implement hours-clustering and LLM narrative similarity checks": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311557
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395678511
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788396520703
+      }
+    ],
+    "11.3 Write property test for sequential pattern detection completeness (P1)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311592
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788397901586
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398126334
+      }
+    ],
+    "11.4 Write unit tests for Repetitive Pattern Engine": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311626
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788397903426
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398127723
+      }
+    ],
+    "12.1 Implement Haversine distance computation and GeoNames resolution": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311652
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395008819
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395624714
+      }
+    ],
+    "12.2 Implement transport implausibility, MVR, and CBSA checks": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311687
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395679870
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788396521802
+      }
+    ],
+    "12.3 Write property test for geodesic distance symmetry and self-distance (P2)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311715
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788397904822
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398129129
+      }
+    ],
+    "12.4 Write unit tests for Geographic Anomaly Engine": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311747
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788397906231
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398131033
+      }
+    ],
+    "13.1 Implement shell employer detection and coordinated layoff detection": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311777
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395010232
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395623071
+      }
+    ],
+    "13.2 Implement GNN community detection and hours-band analysis": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311806
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395681270
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788396523310
+      }
+    ],
+    "13.3 Write property test for community partition completeness (P3) — wire to Graph Service": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311834
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788397907660
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398132254
+      }
+    ],
+    "13.4 Write unit tests for Fraud Ring Engine": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311865
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398136786
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399126892
+      }
+    ],
+    "14.1 Implement CRA T4 retrieval and earnings discrepancy check": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311893
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395012127
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395621695
+      }
+    ],
+    "14.2 Implement NOC validation, concurrent employment, and LLM contradiction checks": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311929
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395683178
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788396524618
+      }
+    ],
+    "14.3 Write property test for zero earnings discrepancy invariant (P4)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311966
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398138684
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399130184
+      }
+    ],
+    "14.4 Write unit tests for History Inconsistency Engine": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367311993
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398143010
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399128310
+      }
+    ],
+    "15.1 Implement LayoutLMv3 OCR extraction and internal consistency checks": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312020
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395013526
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395620345
+      }
+    ],
+    "15.2 Implement PDF metadata forensics and font fingerprinting": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312047
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395684560
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788396526586
+      }
+    ],
+    "15.3 Implement digital signature verification, payroll cross-reference, and LLM style analysis": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312075
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398140079
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399124086
+      }
+    ],
+    "15.4 Write property test for authenticated document zero indicators (P5)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312100
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399504703
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400386707
+      }
+    ],
+    "15.5 Write property test for OCR round-trip fidelity (P6)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312128
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399506093
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400384886
+      }
+    ],
+    "15.6 Write unit tests for Document Forgery Engine": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312155
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399507501
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400388119
+      }
+    ],
+    "16.1 Implement Stats Canada and Job Bank data retrieval and rate deviation check": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312181
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395014990
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788395618527
+      }
+    ],
+    "16.2 Implement seasonality annotation, recurring claim detection, and Prophet forecast": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312213
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788396527986
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788397891502
+      }
+    ],
+    "16.3 Write property test for zero rate deviation invariant (P13)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312246
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398141467
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399125454
+      }
+    ],
+    "16.4 Write property test for time-series forecast calibration (P14)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312273
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399131432
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399499549
+      }
+    ],
+    "16.5 Write unit tests for Regional Analysis Engine": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312301
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399509432
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400389545
+      }
+    ],
+    "17. Checkpoint — All six detection engines produce Indicators for test claims": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312332
+      }
+    ],
+    "18.1 Implement LFS API fetch, canonical parsing, and Redis caching": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312366
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392503139
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393784996
+      }
+    ],
+    "18.2 Write property test for Stats Canada adapter round-trip (P10)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312395
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394490324
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394989957
+      }
+    ],
+    "19.1 Implement mTLS data exchange, data minimisation, and audit logging": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312425
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392505123
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393786364
+      }
+    ],
+    "20.1 Implement federal and provincial registry queries with PARTIAL_RESULT handling": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312460
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392506454
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393791030
+      }
+    ],
+    "20.2 Write unit tests for Business Registry Adapter round-trip serialisation": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312488
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394495002
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394999452
+      }
+    ],
+    "21.1 Implement CBSA secure-channel fetch and absence detection": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312515
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392508344
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393787819
+      }
+    ],
+    "22.1 Implement coordinate resolution, Haversine computation, and local fallback": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312547
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788392509368
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393789664
+      }
+    ],
+    "22.2 Write property test for GeoNames geodesic invariants (P11)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312579
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394493114
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394991181
+      }
+    ],
+    "23.1 Implement provincial MVR API queries with data minimisation": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312614
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393806069
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394476721
+      }
+    ],
+    "24.1 Implement Job Bank API queries with caching and round-trip serialisation": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312653
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393807987
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394478301
+      }
+    ],
+    "24.2 Write property test for Job Bank adapter round-trip (P12)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312686
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394491702
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394997554
+      }
+    ],
+    "25. Checkpoint — All adapters return canonical responses; mock-data fixtures are in place": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312713
+      }
+    ],
+    "26.1 Create React/TypeScript project with routing and i18n setup": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312746
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399510459
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400390912
+      }
+    ],
+    "26.2 Implement the claim submission form with WCAG 2.1 Level AA compliance": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312779
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400402894
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788402312794
+      }
+    ],
+    "26.3 Implement the claim status view for claimants": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312808
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400407246
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788402311315
+      }
+    ],
+    "27.1 Build the flagged claims list with real-time updates": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312835
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400404335
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788402309900
+      }
+    ],
+    "27.2 Build the claim detail view with SHAP chart and case management": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312865
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788402318310
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788403481578
+      }
+    ],
+    "27.3 Write accessibility tests for the investigator dashboard": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312899
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788403489933
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404286753
+      }
+    ],
+    "28.1 Implement `GET /api/v1/privacy/access` and `DELETE /api/v1/privacy/delete`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312926
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788402319535
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788403482895
+      }
+    ],
+    "29.1 Implement token introspection and scope validation across all FastAPI services": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312963
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400406176
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788402308540
+      }
+    ],
+    "30. Checkpoint — Claimant Portal loads, submits a synthetic claim, and shows it in the Investigator Dashboard": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367312993
+      }
+    ],
+    "31.1 Add Prometheus metrics to all Detection Engines and adapters": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313021
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788403491289
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404288185
+      }
+    ],
+    "31.2 Implement `/healthz` endpoints and Grafana alert rules": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313048
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404294279
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404586879
+      }
+    ],
+    "32.1 Instrument all services with OpenTelemetry spans": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313075
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788403492819
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404289554
+      }
+    ],
+    "33.1 Implement happy-path and INVESTIGATE-path integration tests": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313104
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404598306
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405406444
+      }
+    ],
+    "33.2 Implement Kafka event-flow and audit-trail integration tests": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313133
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404599708
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405404659
+      }
+    ],
+    "33.3 Implement bilingual output integration tests": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313166
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404601107
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405401763
+      }
+    ],
+    "34.1 Implement Locust load test for 500 concurrent claims at 2,000 claims/min": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313193
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405974884
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406433565
+      }
+    ],
+    "34.2 Implement schemathesis contract tests for all OpenAPI endpoints": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313221
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404604079
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405407880
+      }
+    ],
+    "35.1 Write a `Containerfile` for every service": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313252
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404602559
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405403143
+      }
+    ],
+    "35.2 Write a `build-images.sh` script in `scripts/`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313289
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405409369
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405969424
+      }
+    ],
+    "35.3 Write a `push-images.sh` script in `scripts/`": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313334
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405976284
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406434943
+      }
+    ],
+    "35.4 Add Podman build steps to the CI pipeline in `.github/workflows/ci.yml` (or `.tekton/`)": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313367
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405981803
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406437999
+      }
+    ],
+    "36.1 Create Deployment and HPA manifests for all 13 services": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313395
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405977759
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406436356
+      }
+    ],
+    "36.2 Create StatefulSet manifests for Neo4j, Redis Cluster, and Kafka": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313430
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405979578
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406431665
+      }
+    ],
+    "36.3 Create Kubernetes Secrets manifests and ConfigMaps": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313460
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406443829
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406909289
+      }
+    ],
+    "36.4 Create network policies and ingress manifests": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313492
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406444913
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406910350
+      }
+    ],
+    "37. Final checkpoint — Full system test against Kubernetes local cluster": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313526
+      }
+    ],
+    "38.1 Configure `pip-audit` and `safety` as pre-commit hooks and CI gates": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313559
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406916057
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407152216
+      }
+    ],
+    "38.2 Configure `npm audit` and `Snyk` for the React frontend": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313593
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406917418
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407153592
+      }
+    ],
+    "38.3 Set up automated dependency update PRs with Dependabot": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313621
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406918925
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407154933
+      }
+    ],
+    "39.1 Install and configure Syft for per-image SBOM generation": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313653
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407163873
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407392982
+      }
+    ],
+    "39.2 Validate all SBOMs against the OSV vulnerability database using Grype": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313687
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407394390
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407513345
+      }
+    ],
+    "39.3 Embed the SBOM digest into every container image as an OCI annotation": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313718
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407512171
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407666230
+      }
+    ],
+    "39.4 Publish SBOMs to the OpenShift internal registry and artifact store": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313752
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407897191
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788408069721
+      }
+    ],
+    "39.5 Generate a merged aggregate SBOM for the entire EI-ADS release": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313781
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407667897
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407894170
+      }
+    ],
+    "40.1 Run all security scans in sequence and produce a deployment readiness report": [
+      {
+        "executionId": "3330cb62-2018-463a-8718-a4204d77d639",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788367313813
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407669029
+      },
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407895576
+      }
+    ],
+    "1. Set up monorepo project structure and shared Python configuration": [
+      {
+        "executionId": "2c1af39d-f418-4e42-b47c-e15f86752aab",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788381190733
+      }
+    ],
+    "2. Provision infrastructure configuration files": [
+      {
+        "executionId": "552b0ba0-cd0e-4b5a-8e62-aaabf808f08d",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788384077747
+      }
+    ],
+    "5. Implement the ROE Adapter in `services/roe-adapter/`": [
+      {
+        "executionId": "2335652a-bbc8-4842-804a-3c08853d3cb4",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788385719417
+      }
+    ],
+    "4. Implement the Claim Intake Service in `services/claim-intake/`": [
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389647371
+      }
+    ],
+    "7. Implement the Ensemble Scorer in `services/ensemble-scorer/`": [
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788389651788
+      }
+    ],
+    "9. Implement the Graph Service in `services/graph-service/`": [
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788390222477
+      }
+    ],
+    "8. Implement the LLM Service in `services/llm-service/`": [
+      {
+        "executionId": "aa327663-73e0-462e-b62d-4805cb3b694a",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788391411629
+      }
+    ],
+    "19. Implement the CRA Adapter in `services/cra-adapter/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393786412
+      }
+    ],
+    "21. Implement the CBSA Adapter in `services/cbsa-adapter/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788393787872
+      }
+    ],
+    "6. Implement the Detection Pipeline Orchestrator in `services/pipeline-orchestrator/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394475383
+      }
+    ],
+    "23. Implement the MVR Adapter in `services/mvr-adapter/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394476766
+      }
+    ],
+    "18. Implement the Stats Canada Adapter in `services/stats-canada-adapter/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394990002
+      }
+    ],
+    "22. Implement the GeoNames Adapter in `services/geonames-adapter/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394991226
+      }
+    ],
+    "24. Implement the Job Bank Adapter in `services/job-bank-adapter/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394997593
+      }
+    ],
+    "20. Implement the Business Registry Adapter in `services/business-registry-adapter/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788394999493
+      }
+    ],
+    "11. Implement the Repetitive Pattern Engine in `services/repetitive-pattern-engine/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398127759
+      }
+    ],
+    "12. Implement the Geographic Anomaly Engine in `services/geographic-anomaly-engine/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788398131081
+      }
+    ],
+    "13. Implement the Fraud Ring Engine in `services/fraud-ring-engine/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399126933
+      }
+    ],
+    "14. Implement the Employment History Inconsistency Engine in `services/history-inconsistency-engine/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788399130228
+      }
+    ],
+    "15. Implement the Document Forgery Engine in `services/document-forgery-engine/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400388161
+      }
+    ],
+    "16. Implement the Regional Analysis Engine in `services/regional-analysis-engine/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788400389599
+      }
+    ],
+    "29. Implement GCKey OAuth 2.0 backend token validation and RBAC enforcement": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788402308598
+      }
+    ],
+    "26. Scaffold the React + TypeScript frontend in `services/claimant-portal/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788402312837
+      }
+    ],
+    "28. Implement the Privacy Act compliance API endpoints in `services/claim-intake/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788403482938
+      }
+    ],
+    "27. Implement the Investigator Dashboard": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404286819
+      }
+    ],
+    "32. Implement OpenTelemetry distributed tracing": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404289601
+      }
+    ],
+    "31. Implement Prometheus metrics instrumentation across all services": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788404586928
+      }
+    ],
+    "33. Write end-to-end integration tests": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788405406489
+      }
+    ],
+    "34. Write Locust load tests in `tests/load/`": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406433599
+      }
+    ],
+    "35. Build and publish all container images with Podman": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406438049
+      }
+    ],
+    "36. Write Kubernetes manifests for all microservices": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788406910399
+      }
+    ],
+    "38. Establish continuous dependency vulnerability scanning": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407154981
+      }
+    ],
+    "40. Final security gate — Zero-CVE sign-off before OpenShift deployment": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788407895620
+      }
+    ],
+    "39. Generate and publish Software Bill of Materials (SBOM)": [
+      {
+        "executionId": "fcc4e1b9-9c9b-40e8-8e09-a879d6c0aaa5",
+        "chatSessionId": "sess_ef9ac354-42ea-40ef-99e5-7dc4e88cd945",
+        "timestamp": 1788408069760
+      }
+    ]
+  }
+}

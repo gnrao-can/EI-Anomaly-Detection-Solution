@@ -1,0 +1,15 @@
+{
+  "province": "BC",
+  "owned_ratio": 0.70,
+  "classes": ["PASSENGER", "MOTORCYCLE"],
+  "record": {
+    "vehicle_ownership_status": "OWNED",
+    "vehicle_class": "MOTORCYCLE",
+    "vin": "SYNBC000002",
+    "vehicle_history": ["registered", "transferred"],
+    "insurance_provider": "ICBC",
+    "lien_balance": 0.0,
+    "registered_owner_name": "Synthetic Owner BC",
+    "registration_expiry": "2026-05-15"
+  }
+}

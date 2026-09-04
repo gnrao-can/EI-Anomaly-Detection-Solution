@@ -1,0 +1,109 @@
+{
+  "_comment": "EI-ADS Kafka topic manifest. Values are the source of truth from design.md 'Kafka Topic Structure'. Production defaults: replication_factor=3, min_insync_replicas=2. Partition key for all topics is claim_id. retention_ms values: 7 days=604800000, 30 days=2592000000, 90 days=7776000000, 365 days=31536000000.",
+  "defaults": {
+    "replication_factor": 3,
+    "min_insync_replicas": 2,
+    "cleanup_policy": "delete"
+  },
+  "topics": [
+    {
+      "name": "claim.received",
+      "partitions": 24,
+      "replication_factor": 3,
+      "retention_ms": 604800000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Claim intake events (retention 7 days)"
+    },
+    {
+      "name": "roe.received",
+      "partitions": 24,
+      "replication_factor": 3,
+      "retention_ms": 604800000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "ROE normalisation events (retention 7 days)"
+    },
+    {
+      "name": "indicators.repetitive-pattern",
+      "partitions": 12,
+      "replication_factor": 3,
+      "retention_ms": 2592000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Repetitive Pattern Engine Indicator events (retention 30 days)"
+    },
+    {
+      "name": "indicators.geographic-anomaly",
+      "partitions": 12,
+      "replication_factor": 3,
+      "retention_ms": 2592000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Geographic Anomaly Engine Indicator events (retention 30 days)"
+    },
+    {
+      "name": "indicators.fraud-ring",
+      "partitions": 12,
+      "replication_factor": 3,
+      "retention_ms": 2592000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Fraud Ring Engine Indicator events (retention 30 days)"
+    },
+    {
+      "name": "indicators.history-inconsistency",
+      "partitions": 12,
+      "replication_factor": 3,
+      "retention_ms": 2592000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Employment History Inconsistency Engine Indicator events (retention 30 days)"
+    },
+    {
+      "name": "indicators.document-forgery",
+      "partitions": 12,
+      "replication_factor": 3,
+      "retention_ms": 2592000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Document Forgery Engine Indicator events (retention 30 days)"
+    },
+    {
+      "name": "indicators.regional-analysis",
+      "partitions": 12,
+      "replication_factor": 3,
+      "retention_ms": 2592000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Regional Analysis Engine Indicator events (retention 30 days)"
+    },
+    {
+      "name": "claim.scored",
+      "partitions": 24,
+      "replication_factor": 3,
+      "retention_ms": 7776000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Final Risk_Score + Risk_Decision events (retention 90 days)"
+    },
+    {
+      "name": "claim.escalated",
+      "partitions": 12,
+      "replication_factor": 3,
+      "retention_ms": 7776000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "INVESTIGATE decision events (retention 90 days)"
+    },
+    {
+      "name": "outcome.feedback",
+      "partitions": 12,
+      "replication_factor": 3,
+      "retention_ms": 31536000000,
+      "min_insync_replicas": 2,
+      "cleanup_policy": "delete",
+      "description": "Investigator disposition events (retention 365 days)"
+    }
+  ]
+}

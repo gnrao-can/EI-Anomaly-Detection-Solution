@@ -1,0 +1,25 @@
+# Shared library dependencies
+# Used as a base for all EI-ADS Python microservices
+# All versions are exact-pinned (==) for Government of Canada production compliance
+# Last reviewed: 2024
+# Vulnerability policy: zero CVEs with CVSS >= 7.0 (validated via pip-audit + safety)
+
+pydantic==2.7.1
+python-dateutil==2.9.0.post0
+structlog==24.2.0
+
+# Observability — Prometheus metrics + FastAPI /metrics endpoint (task 31.1).
+# Imported behind a guard in shared/metrics.py; services still start if absent.
+prometheus-client==0.21.1
+prometheus-fastapi-instrumentator==7.0.0
+
+# OpenTelemetry distributed tracing (task 32.1 / Req 21.5).
+# Exported to the OpenTelemetry Collector over OTLP/gRPC. Guarded behind
+# optional imports in shared/telemetry.py so services import without them in
+# the sandbox. Versions pinned in scripts/dependencies/python-versions.toml.
+opentelemetry-sdk==1.29.0
+opentelemetry-api==1.29.0
+opentelemetry-exporter-otlp-proto-grpc==1.29.0
+opentelemetry-instrumentation-fastapi==0.50b0
+opentelemetry-instrumentation-asyncpg==0.50b0
+opentelemetry-instrumentation-aiohttp-client==0.50b0

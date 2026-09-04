@@ -1,0 +1,3 @@
+# Chroma vector store persistence directory for the LLM Service RAG pipeline.
+# Configured via LLM_CHROMA_DIR (default: data/chroma). Contents are generated
+# at runtime by langchain_community.vectorstores.Chroma and are not committed.

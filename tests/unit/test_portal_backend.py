@@ -1,0 +1,753 @@
+"""
+tests/unit/test_portal_backend.py
+=================================
+Unit tests for the Portal Backend-for-Frontend (BFF) at
+``services/portal-backend``.
+
+The service lives in a hyphenated directory, so it is loaded via the shared
+``load_service_module`` conftest helper (namespaced ``sys.modules`` keys keep the
+whole unit suite collision-free).
+
+Coverage:
+  * dev-auth: login sets a cookie; protected routes work with it and 401 without.
+  * role gates: 403 for the wrong role on investigator/disposition endpoints.
+  * PII masking: REVIEWER sees masked name/SIN/address; INVESTIGATOR does not.
+  * claimant own-data-only enforcement (Req 19.7).
+  * 404 paths for absent claims.
+  * disposition -> outcome.feedback publish hook fires ONLY for
+    CONFIRMED_FRAUD / FALSE_POSITIVE.
+  * SSE emits a pushed flagged claim.
+  * JSON response keys EXACTLY match the snake_case keys the SPA parsers read.
+  * reverse-proxy endpoints forward to CLAIM_INTAKE_URL (httpx MockTransport).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+
+import pytest
+
+from tests.conftest import load_service_module
+
+pytest.importorskip("fastapi")
+pytest.importorskip("httpx")
+from fastapi.testclient import TestClient  # noqa: E402
+
+# Force local-degrade defaults before the modules read settings.
+os.environ.setdefault("AUTH_MODE", "dev")
+os.environ.setdefault("SESSION_SECRET", "test_portal_secret")
+os.environ.setdefault("CLAIM_INTAKE_URL", "http://claim-intake.test")
+
+_SIBLINGS = ["config", "auth", "repository", "sse", "gckey", "main"]
+
+_config = load_service_module("portal-backend", "config", siblings=_SIBLINGS)
+_auth = load_service_module("portal-backend", "auth", siblings=_SIBLINGS)
+_repository = load_service_module("portal-backend", "repository", siblings=_SIBLINGS)
+_sse = load_service_module("portal-backend", "sse", siblings=_SIBLINGS)
+_main = load_service_module("portal-backend", "main", siblings=_SIBLINGS)
+
+app = _main.app
+FakePortalRepository = _repository.FakePortalRepository
+sign_session = _auth.sign_session
+
+SESSION_SECRET = "test_portal_secret"
+COOKIE_NAME = "ei_ads_session"
+
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def repo() -> "FakePortalRepository":
+    """A fresh in-memory repository wired into the app for each test."""
+    repository = FakePortalRepository()
+    app.state.repository = repository
+    # Ensure a broadcaster exists and settings resolve without a live backend.
+    app.state.broadcaster = _sse.ClaimEventBroadcaster()
+    app.state.kafka_producer = None
+    app.state.settings = _config.get_settings()
+    return repository
+
+
+@pytest.fixture
+def client(repo):
+    with TestClient(app) as c:
+        # TestClient runs the lifespan, which may reset app.state.repository to
+        # a fresh fake (DB absent). Re-inject our seeded repository afterwards.
+        app.state.repository = repo
+        app.state.kafka_producer = None
+        yield c
+
+
+def _session_cookie(role: str, sin_hash=None) -> dict:
+    token = sign_session(
+        {"role": role, "sin_hash": sin_hash}, SESSION_SECRET, max_age=3600
+    )
+    return {COOKIE_NAME: token}
+
+
+def _seed_flagged(repo, claim_id="c-1", **kw):
+    defaults = dict(
+        risk_score=88,
+        risk_decision="INVESTIGATE",
+        explanation_en="High risk.",
+        explanation_fr="Risque élevé.",
+        shap_base_value=50.0,
+        shap_attributions=[
+            {"indicator_id": "i-1", "feature_name": "hours_spike", "contribution": 12.0}
+        ],
+        indicators=[
+            {
+                "indicator_id": "i-1",
+                "engine": "REPETITIVE_PATTERN",
+                "severity": "HIGH",
+                "title": "Repeated pattern",
+                "explanation_en": "en",
+                "explanation_fr": "fr",
+                "shap_contribution": 12.0,
+            }
+        ],
+    )
+    defaults.update(kw)
+    repo.add_claim(claim_id, **defaults)
+
+
+# ---------------------------------------------------------------------------
+# Dev auth
+# ---------------------------------------------------------------------------
+
+
+class TestDevAuth:
+    def test_login_sets_cookie(self, client):
+        resp = client.get("/auth/dev/login", params={"role": "INVESTIGATOR"})
+        assert resp.status_code == 200
+        assert COOKIE_NAME in resp.cookies
+        assert resp.json()["role"] == "INVESTIGATOR"
+
+    def test_protected_route_requires_cookie(self, client):
+        # No cookie -> 401.
+        client.cookies.clear()
+        resp = client.get("/portal/investigator/claims")
+        assert resp.status_code == 401
+
+    def test_protected_route_works_with_cookie(self, client, repo):
+        _seed_flagged(repo)
+        resp = client.get(
+            "/portal/investigator/claims", cookies=_session_cookie("INVESTIGATOR")
+        )
+        assert resp.status_code == 200
+
+    def test_logout_clears_cookie(self, client):
+        resp = client.get("/auth/logout")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "logged_out"
+
+    def test_me_reflects_session(self, client):
+        resp = client.get("/auth/me", cookies=_session_cookie("REVIEWER", "abc"))
+        assert resp.status_code == 200
+        assert resp.json() == {"role": "REVIEWER", "sin_hash": "abc"}
+
+
+# ---------------------------------------------------------------------------
+# SPA session contract — GET /auth/session, POST /auth/logout, POST /auth/callback
+# (services/claimant-portal/src/auth/gckey.ts + roles.ts)
+# ---------------------------------------------------------------------------
+
+
+class TestSessionContract:
+    # Exact JSON keys the SPA's parseSession reads.
+    SESSION_KEYS = {"subject", "roles", "preferredLanguage", "displayName"}
+    # The role strings the SPA's roles.ts isRole() accepts.
+    SPA_ROLES = {"CLAIMANT", "REVIEWER", "INVESTIGATOR", "ADMINISTRATOR"}
+
+    def test_session_with_valid_cookie_returns_contract(self, client):
+        resp = client.get(
+            "/auth/session", cookies=_session_cookie("INVESTIGATOR")
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == self.SESSION_KEYS
+        # subject must be a non-empty string so the SPA accepts the session.
+        assert isinstance(body["subject"], str) and body["subject"]
+        assert body["roles"] == ["INVESTIGATOR"]
+        # roles strings must be exactly what the SPA's isRole() accepts.
+        assert set(body["roles"]).issubset(self.SPA_ROLES)
+        assert body["preferredLanguage"] == "en"
+
+    def test_session_subject_uses_sin_hash_when_present(self, client):
+        resp = client.get(
+            "/auth/session", cookies=_session_cookie("CLAIMANT", "sinhash123")
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["subject"] == "sinhash123"
+        assert body["roles"] == ["CLAIMANT"]
+
+    def test_session_without_cookie_returns_401(self, client):
+        client.cookies.clear()
+        resp = client.get("/auth/session")
+        assert resp.status_code == 401
+
+    def test_session_with_invalid_cookie_returns_401(self, client):
+        client.cookies.clear()
+        resp = client.get("/auth/session", cookies={COOKIE_NAME: "not.a.valid.cookie"})
+        assert resp.status_code == 401
+
+    def test_dev_login_then_session_is_authenticated(self, client):
+        client.cookies.clear()
+        login = client.get(
+            "/auth/dev/login", params={"role": "CLAIMANT", "sin_hash": "abc"}
+        )
+        assert login.status_code == 200
+        # The same client carries the minted cookie forward.
+        resp = client.get("/auth/session")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["roles"] == ["CLAIMANT"]
+        assert isinstance(body["subject"], str) and body["subject"]
+        assert body["subject"] == "abc"
+
+    def test_dev_login_lang_flows_to_session(self, client):
+        client.cookies.clear()
+        client.get(
+            "/auth/dev/login",
+            params={"role": "CLAIMANT", "sin_hash": "abc", "lang": "fr"},
+        )
+        resp = client.get("/auth/session")
+        assert resp.status_code == 200
+        assert resp.json()["preferredLanguage"] == "fr"
+
+    def test_post_logout_clears_cookie(self, client):
+        client.cookies.clear()
+        client.get("/auth/dev/login", params={"role": "CLAIMANT", "sin_hash": "abc"})
+        assert client.get("/auth/session").status_code == 200
+        out = client.post("/auth/logout")
+        assert out.status_code == 200
+        assert out.json()["status"] == "logged_out"
+        # Cookie cleared -> subsequent session read is unauthenticated.
+        client.cookies.clear()
+        assert client.get("/auth/session").status_code == 401
+
+    def test_post_callback_404_in_dev_mode(self, client):
+        # In dev mode there is no IdP; POST /auth/callback mirrors the GET 404.
+        resp = client.post(
+            "/auth/callback",
+            json={"code": "x", "code_verifier": "y", "redirect_uri": "z"},
+        )
+        assert resp.status_code == 404
+
+    def test_authorize_redirects_to_dev_login_in_dev_mode(self, client):
+        resp = client.get("/auth/authorize", follow_redirects=False)
+        assert resp.status_code == 302
+        assert "/auth/dev/login" in resp.headers["location"]
+
+
+# ---------------------------------------------------------------------------
+# Claimant status view + own-data-only (Req 19.7)
+# ---------------------------------------------------------------------------
+
+
+class TestClaimStatus:
+    SPA_KEYS = {
+        "claim_id",
+        "status",
+        "risk_decision",
+        "risk_score",
+        "explanation_en",
+        "explanation_fr",
+        "submitted_at",
+        "decided_at",
+    }
+
+    def test_own_claim_returns_contract_keys(self, client, repo):
+        repo.add_claim(
+            "c-own",
+            sin_hash="mysin",
+            db_status="SCORED",
+            risk_score=20,
+            risk_decision="AUTO_APPROVE",
+            explanation_en="ok",
+            explanation_fr="ok-fr",
+        )
+        resp = client.get(
+            "/portal/claims/c-own", cookies=_session_cookie("CLAIMANT", "mysin")
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == self.SPA_KEYS
+        assert body["claim_id"] == "c-own"
+        assert body["status"] == "DECIDED"  # SCORED -> DECIDED mapping
+        assert body["risk_decision"] == "AUTO_APPROVE"
+
+    def test_claimant_cannot_read_other_claim(self, client, repo):
+        repo.add_claim("c-other", sin_hash="otherhash", risk_decision="AUTO_APPROVE")
+        resp = client.get(
+            "/portal/claims/c-other", cookies=_session_cookie("CLAIMANT", "mine")
+        )
+        # Own-data-only: masked as 404 to avoid leaking existence.
+        assert resp.status_code == 404
+
+    def test_absent_claim_is_404(self, client):
+        resp = client.get(
+            "/portal/claims/missing", cookies=_session_cookie("CLAIMANT", "x")
+        )
+        assert resp.status_code == 404
+
+    def test_requires_auth(self, client):
+        client.cookies.clear()
+        resp = client.get("/portal/claims/anything")
+        assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Investigator queue (Req 22.1) + role gates + masking (Req 22.6)
+# ---------------------------------------------------------------------------
+
+
+class TestInvestigatorQueue:
+    ROW_KEYS = {
+        "claim_id",
+        "risk_score",
+        "risk_decision",
+        "received_at",
+        "employer_bn",
+        "claimant_name",
+        "claimant_sin",
+        "address",
+    }
+
+    def test_only_flagged_decisions_sorted_desc(self, client, repo):
+        _seed_flagged(repo, "low", risk_score=71, risk_decision="INVESTIGATE")
+        _seed_flagged(repo, "high", risk_score=95, risk_decision="FLAG_FOR_REVIEW")
+        repo.add_claim("approved", risk_score=10, risk_decision="AUTO_APPROVE")
+
+        resp = client.get(
+            "/portal/investigator/claims", cookies=_session_cookie("INVESTIGATOR")
+        )
+        assert resp.status_code == 200
+        claims = resp.json()["claims"]
+        assert [c["claim_id"] for c in claims] == ["high", "low"]
+        assert set(claims[0].keys()) == self.ROW_KEYS
+
+    def test_reviewer_pii_masked(self, client, repo):
+        _seed_flagged(repo, "c-1", claimant_name="Jane Doe", claimant_sin="123-456-789")
+        resp = client.get(
+            "/portal/investigator/claims", cookies=_session_cookie("REVIEWER")
+        )
+        row = resp.json()["claims"][0]
+        assert row["claimant_name"] is None
+        assert row["address"] is None
+        assert row["claimant_sin"] == "***-**-789"
+
+    def test_investigator_pii_unmasked(self, client, repo):
+        _seed_flagged(repo, "c-1", claimant_name="Jane Doe", claimant_sin="123-456-789")
+        resp = client.get(
+            "/portal/investigator/claims", cookies=_session_cookie("INVESTIGATOR")
+        )
+        row = resp.json()["claims"][0]
+        assert row["claimant_name"] == "Jane Doe"
+        assert row["claimant_sin"] == "123-456-789"
+
+    def test_claimant_role_denied(self, client, repo):
+        resp = client.get(
+            "/portal/investigator/claims", cookies=_session_cookie("CLAIMANT", "x")
+        )
+        assert resp.status_code == 403
+
+    def test_no_cookie_401(self, client):
+        client.cookies.clear()
+        resp = client.get("/portal/investigator/claims")
+        assert resp.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Investigator detail (Req 22.2) + masking + 404
+# ---------------------------------------------------------------------------
+
+
+class TestInvestigatorDetail:
+    DETAIL_KEYS = {
+        "claim_id",
+        "risk_score",
+        "risk_decision",
+        "shap_base_value",
+        "shap_attributions",
+        "indicators",
+        "explanation_en",
+        "explanation_fr",
+        "claimant_name",
+        "claimant_sin",
+        "employer_bn",
+        "disposition",
+        "case_notes",
+    }
+    SHAP_KEYS = {"indicator_id", "feature_name", "contribution"}
+    INDICATOR_KEYS = {
+        "indicator_id",
+        "engine",
+        "severity",
+        "title",
+        "explanation_en",
+        "explanation_fr",
+        "shap_contribution",
+    }
+
+    def test_detail_contract_keys(self, client, repo):
+        _seed_flagged(repo, "c-1")
+        resp = client.get(
+            "/portal/investigator/claims/c-1",
+            cookies=_session_cookie("INVESTIGATOR"),
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert set(body.keys()) == self.DETAIL_KEYS
+        assert set(body["shap_attributions"][0].keys()) == self.SHAP_KEYS
+        assert set(body["indicators"][0].keys()) == self.INDICATOR_KEYS
+
+    def test_detail_reviewer_masked(self, client, repo):
+        _seed_flagged(repo, "c-1", claimant_name="Jane Doe", claimant_sin="123-456-789")
+        resp = client.get(
+            "/portal/investigator/claims/c-1", cookies=_session_cookie("REVIEWER")
+        )
+        body = resp.json()
+        assert body["claimant_name"] is None
+        assert body["claimant_sin"] == "***-**-789"
+        # Non-PII risk data still present for triage.
+        assert body["risk_score"] == 88
+
+    def test_detail_absent_404(self, client):
+        resp = client.get(
+            "/portal/investigator/claims/nope", cookies=_session_cookie("INVESTIGATOR")
+        )
+        assert resp.status_code == 404
+
+    def test_detail_claimant_denied(self, client, repo):
+        _seed_flagged(repo, "c-1")
+        resp = client.get(
+            "/portal/investigator/claims/c-1", cookies=_session_cookie("CLAIMANT", "x")
+        )
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Disposition (Req 22.3, 22.4)
+# ---------------------------------------------------------------------------
+
+
+class _RecordingProducer:
+    """Captures outcome.feedback publishes without a real broker."""
+
+    def __init__(self):
+        self.sent = []
+
+    async def send_and_wait(self, topic, value=None, key=None):
+        self.sent.append((topic, json.loads(value.decode("utf-8")), key))
+
+
+class TestDisposition:
+    def _publish_producer(self):
+        producer = _RecordingProducer()
+        app.state.kafka_producer = producer
+        return producer
+
+    def test_confirmed_fraud_publishes_feedback(self, client, repo):
+        _seed_flagged(repo, "c-1")
+        producer = self._publish_producer()
+        resp = client.put(
+            "/api/v1/claims/c-1/disposition",
+            json={"disposition": "CONFIRMED_FRAUD", "case_notes": "notes"},
+            cookies=_session_cookie("INVESTIGATOR"),
+        )
+        assert resp.status_code == 200
+        assert resp.json()["disposition"] == "CONFIRMED_FRAUD"
+        assert len(producer.sent) == 1
+        topic, event, _ = producer.sent[0]
+        assert topic == "outcome.feedback"
+        assert event["claim_id"] == "c-1"
+
+    def test_false_positive_publishes_feedback(self, client, repo):
+        _seed_flagged(repo, "c-1")
+        producer = self._publish_producer()
+        resp = client.put(
+            "/api/v1/claims/c-1/disposition",
+            json={"disposition": "FALSE_POSITIVE", "case_notes": ""},
+            cookies=_session_cookie("INVESTIGATOR"),
+        )
+        assert resp.status_code == 200
+        assert len(producer.sent) == 1
+
+    def test_needs_review_does_not_publish(self, client, repo):
+        _seed_flagged(repo, "c-1")
+        producer = self._publish_producer()
+        resp = client.put(
+            "/api/v1/claims/c-1/disposition",
+            json={"disposition": "NEEDS_FURTHER_REVIEW", "case_notes": ""},
+            cookies=_session_cookie("INVESTIGATOR"),
+        )
+        assert resp.status_code == 200
+        assert producer.sent == []
+
+    def test_disposition_persisted(self, client, repo):
+        _seed_flagged(repo, "c-1")
+        self._publish_producer()
+        client.put(
+            "/api/v1/claims/c-1/disposition",
+            json={"disposition": "NEEDS_FURTHER_REVIEW", "case_notes": "look again"},
+            cookies=_session_cookie("INVESTIGATOR"),
+        )
+        detail = client.get(
+            "/portal/investigator/claims/c-1", cookies=_session_cookie("INVESTIGATOR")
+        ).json()
+        assert detail["disposition"] == "NEEDS_FURTHER_REVIEW"
+        assert detail["case_notes"] == "look again"
+
+    def test_reviewer_denied_disposition(self, client, repo):
+        _seed_flagged(repo, "c-1")
+        resp = client.put(
+            "/api/v1/claims/c-1/disposition",
+            json={"disposition": "CONFIRMED_FRAUD", "case_notes": ""},
+            cookies=_session_cookie("REVIEWER"),
+        )
+        assert resp.status_code == 403
+
+    def test_invalid_disposition_422(self, client, repo):
+        _seed_flagged(repo, "c-1")
+        self._publish_producer()
+        resp = client.put(
+            "/api/v1/claims/c-1/disposition",
+            json={"disposition": "BOGUS", "case_notes": ""},
+            cookies=_session_cookie("INVESTIGATOR"),
+        )
+        assert resp.status_code == 422
+
+
+# ---------------------------------------------------------------------------
+# SSE stream (Req 22.1)
+# ---------------------------------------------------------------------------
+
+
+class TestSSE:
+    def test_stream_emits_pushed_claim(self, repo):
+        import asyncio
+
+        broadcaster = _sse.ClaimEventBroadcaster()
+
+        async def _run():
+            queue = await broadcaster.subscribe()
+            claim = {"claim_id": "c-9", "risk_score": 90, "risk_decision": "INVESTIGATE"}
+            await broadcaster.publish(claim)
+            gen = broadcaster.event_stream(queue, heartbeat_seconds=5.0)
+            frame = await asyncio.wait_for(gen.__anext__(), timeout=2.0)
+            await gen.aclose()
+            return frame
+
+        frame = asyncio.run(_run())
+        assert frame.startswith("data: ")
+        payload = json.loads(frame[len("data: ") :].strip())
+        assert payload["claim_id"] == "c-9"
+
+    def test_stream_requires_investigator_role(self, client, repo):
+        resp = client.get(
+            "/portal/events/claims", cookies=_session_cookie("CLAIMANT", "x")
+        )
+        assert resp.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Claim submission (Option A: BFF owns/translates the SPA's multipart contract)
+# ---------------------------------------------------------------------------
+
+
+class TestClaimSubmission:
+    """POST /api/v1/claims — the BFF is a THIN multipart forwarder to Claim Intake.
+
+    Design-faithful (design.md): the portal forwards the claimant's multipart
+    submission to the Claim Intake Service, which owns validation + persistence.
+    These tests stand claim-intake up as an httpx MockTransport and assert the
+    BFF (a) requires a CLAIMANT session, (b) forwards the multipart body to
+    CLAIM_INTAKE_URL with the dev-auth headers, and (c) returns intake's
+    response (202 {claim_id} or 400 {errors}) unchanged.
+    """
+
+    VALID_FIELDS = {
+        "sin": "046454286",
+        "employer_bn": "123456789RT0001",
+        "insurable_hours": "1200",
+        "insurable_earnings": "45000",
+        "separation_date": "2024-01-15",
+        "separation_reason": "Shortage of work",
+    }
+
+    def _mock_intake(self, capture, *, status_code=202, body=None):
+        """Install an httpx MockTransport that impersonates claim-intake."""
+        import httpx
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capture["method"] = request.method
+            capture["url"] = str(request.url)
+            capture["content_type"] = request.headers.get("content-type", "")
+            capture["x_dev_role"] = request.headers.get("x-dev-role")
+            capture["x_dev_sin_hash"] = request.headers.get("x-dev-sin-hash")
+            capture["body"] = request.content
+            payload = body if body is not None else {"claim_id": "intake-123", "status": "RECEIVED"}
+            return httpx.Response(status_code, json=payload)
+
+        app.state.proxy_transport = httpx.MockTransport(handler)
+
+    def test_forwards_multipart_to_intake_and_returns_202(self, client):
+        capture: dict = {}
+        self._mock_intake(capture)
+        resp = client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            cookies=_session_cookie("CLAIMANT", "sinhash-abc"),
+        )
+        # BFF returns intake's response unchanged.
+        assert resp.status_code == 202
+        assert resp.json()["claim_id"] == "intake-123"
+        # Forwarded to claim-intake's /api/v1/claims as a form/multipart body.
+        assert capture["method"] == "POST"
+        assert capture["url"].endswith("/api/v1/claims")
+        assert "form" in capture["content_type"] or "multipart" in capture["content_type"]
+
+    def test_dev_auth_headers_are_set_from_session(self, client):
+        capture: dict = {}
+        self._mock_intake(capture)
+        client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            cookies=_session_cookie("CLAIMANT", "sinhash-abc"),
+        )
+        # In dev mode the BFF authorises intake via trusted dev headers.
+        assert capture["x_dev_role"] == "CLAIMANT"
+        assert capture["x_dev_sin_hash"] == "sinhash-abc"
+
+    def test_intake_400_errors_are_passed_through(self, client):
+        capture: dict = {}
+        self._mock_intake(
+            capture,
+            status_code=400,
+            body={"errors": [{"field": "insurable_hours", "code": "MISSING", "hint": "x"}]},
+        )
+        resp = client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            cookies=_session_cookie("CLAIMANT", "x"),
+        )
+        assert resp.status_code == 400
+        assert resp.json()["errors"][0]["field"] == "insurable_hours"
+
+    def test_optional_roe_document_is_forwarded(self, client):
+        capture: dict = {}
+        self._mock_intake(capture)
+        resp = client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            files={"roe_document": ("roe.pdf", b"%PDF-1.4 fake", "application/pdf")},
+            cookies=_session_cookie("CLAIMANT", "x"),
+        )
+        assert resp.status_code == 202
+        # A multipart body carrying the file was forwarded.
+        assert "multipart" in capture["content_type"]
+        assert b"roe.pdf" in capture["body"]
+
+    def test_intake_unreachable_returns_502(self, client):
+        import httpx
+
+        def boom(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("intake down")
+
+        app.state.proxy_transport = httpx.MockTransport(boom)
+        resp = client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            cookies=_session_cookie("CLAIMANT", "x"),
+        )
+        assert resp.status_code == 502
+
+    def test_no_session_cookie_returns_401(self, client):
+        client.cookies.clear()
+        resp = client.post("/api/v1/claims", data=dict(self.VALID_FIELDS))
+        assert resp.status_code == 401
+
+    def test_non_claimant_role_returns_403(self, client):
+        resp = client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            cookies=_session_cookie("REVIEWER"),
+        )
+        assert resp.status_code == 403
+
+
+class TestReverseProxy:
+    def _install_mock_transport(self, capture):
+        import httpx
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capture["method"] = request.method
+            capture["url"] = str(request.url)
+            capture["body"] = request.content
+            return httpx.Response(202, json={"claim_id": "proxied-123"})
+
+        app.state.proxy_transport = httpx.MockTransport(handler)
+
+    # NOTE: POST /api/v1/claims is NO LONGER reverse-proxied in dev mode.
+    # Under Option A the BFF now owns/translates the submission and, in the
+    # default AUTH_MODE=dev, persists it directly to the shared DB / repository
+    # (see TestClaimSubmission below). Only the Privacy Act paths stay proxied.
+
+    def test_privacy_access_forwards(self, client):
+        capture: dict = {}
+        self._install_mock_transport(capture)
+        client.get("/api/v1/privacy/access")
+        assert capture["method"] == "GET"
+        assert "/api/v1/privacy/access" in capture["url"]
+
+    def test_privacy_delete_forwards(self, client):
+        capture: dict = {}
+        self._install_mock_transport(capture)
+        client.request("DELETE", "/api/v1/privacy/delete")
+        assert capture["method"] == "DELETE"
+        assert "/api/v1/privacy/delete" in capture["url"]
+
+
+# ---------------------------------------------------------------------------
+# Health check
+# ---------------------------------------------------------------------------
+
+
+class TestHealth:
+    def test_healthz_degraded_without_backends(self, client):
+        app.state.db_pool = None
+        app.state.kafka_producer = None
+        resp = client.get("/healthz")
+        assert resp.status_code == 503
+        body = resp.json()
+        assert body["status"] == "degraded"
+        assert set(body["checks"].keys()) == {"database", "kafka"}
+
+
+# ---------------------------------------------------------------------------
+# Session signing unit tests
+# ---------------------------------------------------------------------------
+
+
+class TestSessionSigning:
+    def test_roundtrip(self):
+        token = sign_session({"role": "INVESTIGATOR", "sin_hash": None}, "s", max_age=60)
+        payload = _auth.verify_session(token, "s", max_age=60)
+        assert payload["role"] == "INVESTIGATOR"
+
+    def test_tampered_rejected(self):
+        token = sign_session({"role": "ADMINISTRATOR"}, "s")
+        tampered = token[:-2] + ("aa" if token[-2:] != "aa" else "bb")
+        with pytest.raises(_auth.SessionError):
+            _auth.verify_session(tampered, "s")
+
+    def test_wrong_secret_rejected(self):
+        token = sign_session({"role": "CLAIMANT"}, "secret-a")
+        with pytest.raises(_auth.SessionError):
+            _auth.verify_session(token, "secret-b")
