@@ -94,11 +94,13 @@ except Exception:  # noqa: BLE001
 
 # A valid SIN passing the Luhn checksum, plus otherwise-valid claim fields.
 _RAW_SIN = "130692544"
-_VALID_PAYLOAD = {
+# The /api/v1/claims endpoint accepts multipart/form-data (design line 145;
+# Req 1.2), so claim fields are posted as form values (all strings on the wire).
+_VALID_FORM = {
     "sin": _RAW_SIN,
     "employer_bn": "123456789RT0001",
-    "insurable_hours": 800,
-    "insurable_earnings": 25000,
+    "insurable_hours": "800",
+    "insurable_earnings": "25000",
     "separation_date": "2024-01-01",
     "separation_reason": "Shortage of work",
     "postal_code": "K1A 0A9",
@@ -253,7 +255,7 @@ class TestTwoPhaseCommit:
         return TestClient(claim_intake_main.app)
 
     def test_success_persists_and_publishes(self):
-        resp = self._client().post("/api/v1/claims", json=_VALID_PAYLOAD)
+        resp = self._client().post("/api/v1/claims", data=_VALID_FORM)
         assert resp.status_code == 202
         body = resp.json()
         claim_id = body["claim_id"]
@@ -268,7 +270,7 @@ class TestTwoPhaseCommit:
 
     def test_publish_failure_triggers_rollback(self):
         self.producer.fail_next_publish()
-        resp = self._client().post("/api/v1/claims", json=_VALID_PAYLOAD)
+        resp = self._client().post("/api/v1/claims", data=_VALID_FORM)
 
         # Not accepted; structured error body; PG row rolled back.
         assert resp.status_code != 202
@@ -286,7 +288,7 @@ class TestTwoPhaseCommit:
         )
         claim_intake_main.app.state.event_producer = self.producer
 
-        resp = self._client().post("/api/v1/claims", json=_VALID_PAYLOAD)
+        resp = self._client().post("/api/v1/claims", data=_VALID_FORM)
         assert resp.status_code != 202
         assert resp.status_code == 502
         body = resp.json()
@@ -297,7 +299,7 @@ class TestTwoPhaseCommit:
 
     def test_pg_failure_returns_error_and_never_publishes(self):
         self.repo.fail_next_insert()
-        resp = self._client().post("/api/v1/claims", json=_VALID_PAYLOAD)
+        resp = self._client().post("/api/v1/claims", data=_VALID_FORM)
 
         assert resp.status_code != 202
         assert resp.status_code == 500

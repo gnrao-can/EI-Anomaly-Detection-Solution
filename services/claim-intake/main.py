@@ -396,8 +396,9 @@ async def create_claim(
     ``separation_date``, ``separation_reason``, plus an OPTIONAL ``postal_code``
     and an OPTIONAL ``roe_document`` file upload.
 
-    Requires the CLAIMANT role (real GCKey Bearer/JWKS in gckey mode; trusted-
-    header dev principal in AUTH_MODE=dev). Processing:
+    Requires the CLAIMANT role, enforced by ``require_role(Role.CLAIMANT)`` — a
+    valid GCKey Bearer validated via JWKS (401 without a token, 403 for a
+    non-claimant role; Req 19.7). Processing:
 
     1. Validate the fields with ``validate_claim_fields``. On any failure, return
        HTTP 400 with a structured ``{"errors": [{field,code,hint}]}`` body and

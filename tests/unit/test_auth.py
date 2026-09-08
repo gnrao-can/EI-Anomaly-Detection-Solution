@@ -310,11 +310,13 @@ except Exception:  # noqa: BLE001 - service deps may be unavailable
     _HAS_CLAIM_INTAKE = False
 
 
-_VALID_PAYLOAD = {
+# The /api/v1/claims endpoint accepts multipart/form-data (design line 145;
+# Req 1.2), so claim fields are posted as form values (all strings on the wire).
+_VALID_FORM = {
     "sin": "130692544",
     "employer_bn": "123456789RT0001",
-    "insurable_hours": 800,
-    "insurable_earnings": 25000,
+    "insurable_hours": "800",
+    "insurable_earnings": "25000",
     "separation_date": "2024-01-01",
     "separation_reason": "Shortage of work",
     "postal_code": "K1A 0A9",
@@ -331,7 +333,7 @@ class TestClaimIntakeAppWiring:
             claim_intake_main.app.dependency_overrides.clear()
 
     def test_post_claims_without_token_returns_401(self):
-        resp = self._client().post("/api/v1/claims", json=_VALID_PAYLOAD)
+        resp = self._client().post("/api/v1/claims", data=_VALID_FORM)
         assert resp.status_code == 401
 
     def test_post_claims_as_claimant_returns_202(self):
@@ -340,7 +342,7 @@ class TestClaimIntakeAppWiring:
         claim_intake_main.app.dependency_overrides[get_current_user] = (
             lambda: {"roles": ["CLAIMANT"]}
         )
-        resp = self._client().post("/api/v1/claims", json=_VALID_PAYLOAD)
+        resp = self._client().post("/api/v1/claims", data=_VALID_FORM)
         assert resp.status_code == 202
         assert "claim_id" in resp.json()
 
@@ -350,7 +352,7 @@ class TestClaimIntakeAppWiring:
         claim_intake_main.app.dependency_overrides[get_current_user] = (
             lambda: {"roles": ["REVIEWER"]}
         )
-        resp = self._client().post("/api/v1/claims", json=_VALID_PAYLOAD)
+        resp = self._client().post("/api/v1/claims", data=_VALID_FORM)
         assert resp.status_code == 403
 
     def test_healthz_returns_503_when_dependencies_absent(self):
