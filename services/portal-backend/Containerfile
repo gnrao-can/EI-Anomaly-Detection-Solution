@@ -1,0 +1,68 @@
+# ============================================================
+# portal-backend — Claimant Portal Backend-for-Frontend (BFF)
+# Base: registry.access.redhat.com/ubi9/python-311 (pinned tag)
+# OpenShift-compatible, rootless (USER 1001)
+#
+# Build context is the MONOREPO ROOT so the shared/ package and the
+# service source are both available:
+#   podman build -f services/portal-backend/Containerfile .
+#
+# The ubi9/python-311 image ships a virtualenv at /opt/app-root owned by the
+# default non-root user (UID 1001). Build RUN steps do NOT auto-activate it, so
+# we set ENV VIRTUAL_ENV=/opt/app-root to make poetry install into that venv,
+# then copy the whole venv into the runtime stage. (Do NOT switch to USER 0:
+# as root, pip resolves to the system interpreter and installs to /usr/local,
+# which the venv's python cannot import — that yields ModuleNotFoundError at
+# runtime.)
+# ============================================================
+
+# ── Stage 1: Builder ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:9.5 AS builder
+
+# Build RUN steps do NOT activate the image's venv, so VIRTUAL_ENV is unset and
+# poetry would install outside /opt/app-root (unwritable -> PermissionError).
+# Set VIRTUAL_ENV explicitly so poetry installs into the app-root venv.
+ENV VIRTUAL_ENV=/opt/app-root
+
+WORKDIR /build
+
+# Install build tools into the app-root venv (as the default user).
+RUN pip install --no-cache-dir --upgrade pip==24.3.1 poetry==1.8.5
+
+# Copy dependency manifests first for layer caching, then the shared package.
+COPY pyproject.toml ./
+COPY shared/ ./shared/
+
+# Install deps + the shared package (root pyproject declares
+# packages=[{include="shared"}]) into the app-root venv. virtualenvs.create
+# false makes poetry install into the already-active /opt/app-root venv.
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --without dev
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:9.5 AS runtime
+
+LABEL org.opencontainers.image.title="ei-ads-portal-backend" \
+      org.opencontainers.image.description="EI-ADS Claimant Portal Backend-for-Frontend (BFF)" \
+      org.opencontainers.image.vendor="ESDC EI-ADS Team"
+
+WORKDIR /app
+
+# Copy the whole app-root virtualenv (packages + console scripts like uvicorn)
+# from the builder. This is where the base image's python/pip live and look, so
+# imports and entrypoints resolve without any PATH changes.
+COPY --from=builder /opt/app-root /opt/app-root
+
+# Application source: the shared package plus this service's code.
+COPY --from=builder /build/shared ./shared
+COPY services/portal-backend/ ./
+
+# Runs as the image's default non-root UID (1001); no USER switch needed.
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+    CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2).status==200 else 1)"]
+
+ENTRYPOINT ["uvicorn"]
+CMD ["main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

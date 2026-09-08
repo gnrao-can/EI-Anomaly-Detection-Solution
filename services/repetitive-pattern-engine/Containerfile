@@ -11,6 +11,10 @@
 # ── Stage 1: Builder ─────────────────────────────────────────
 FROM registry.access.redhat.com/ubi9/python-311:9.5 AS builder
 
+# Build RUN steps do not activate the image venv; point poetry at it so
+# packages install into /opt/app-root (where the base python/pip look).
+ENV VIRTUAL_ENV=/opt/app-root
+
 WORKDIR /build
 
 # Build tooling only lives in this stage; it never reaches the runtime image.
@@ -21,8 +25,7 @@ COPY pyproject.toml ./
 COPY shared/ ./shared/
 
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi --without dev \
-    && pip install --no-cache-dir -e ./shared
+    && poetry install --no-interaction --no-ansi --without dev
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
 FROM registry.access.redhat.com/ubi9/python-311:9.5 AS runtime
@@ -35,9 +38,9 @@ WORKDIR /app
 
 # Copy ONLY the installed packages and console scripts from the builder —
 # no compilers, no Poetry, no dev tools.
-COPY --from=builder /usr/lib/python3.11/site-packages /usr/lib/python3.11/site-packages
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
+# The ubi9/python-311 base installs into the /opt/app-root venv; copy the
+# whole venv (packages + console scripts) rather than the /usr/* paths.
+COPY --from=builder /opt/app-root /opt/app-root
 
 # Application source: the shared package plus this service's code.
 COPY --from=builder /build/shared ./shared

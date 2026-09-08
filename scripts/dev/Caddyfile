@@ -1,0 +1,26 @@
+# scripts/dev/Caddyfile
+# =====================
+# LOCAL-DEV single-origin reverse proxy for the podman-compose stack.
+#
+# The claimant-portal SPA is served as static files and makes same-origin,
+# cookie-bearing calls (credentials: 'include') to /auth, /api and /portal.
+# The Vite dev proxy only exists under `npm run dev`, not in the built static
+# server — so in compose we front the SPA and the portal-backend on ONE origin
+# (http://localhost:8080) with this proxy, keeping the session cookie same-origin.
+#
+#   /auth/*, /api/*, /portal/*  -> portal-backend:8000  (BFF: GCKey, read APIs)
+#   everything else             -> claimant-portal:3000 (static SPA)
+
+{
+	admin off
+	auto_https off
+}
+
+:8080 {
+	# Backend-for-frontend routes (auth, write proxy, investigator read APIs).
+	@bff path /auth/* /api/* /portal/*
+	reverse_proxy @bff portal-backend:8000
+
+	# Everything else is the static SPA (client-side routing handled by serve).
+	reverse_proxy claimant-portal:3000
+}

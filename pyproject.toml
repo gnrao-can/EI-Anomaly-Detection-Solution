@@ -14,12 +14,18 @@ python = ">=3.11,<3.12"
 fastapi = "0.115.6"
 uvicorn = {version = "0.32.1", extras = ["standard"]}
 pydantic = "2.10.3"
+pydantic-settings = "2.7.0"          # every service config.py: BaseSettings (>=2.4 for langchain-community)
 httpx = "0.28.1"
 asyncpg = "0.30.0"
 aiokafka = "0.12.0"
 redis = "5.2.1"
+python-multipart = "0.0.9"           # claim-intake / portal multipart Form/File
+python-jose = {version = "3.3.0", extras = ["cryptography"]}  # shared/auth.py: JWT/JWKS
+numpy = "1.26.4"                     # ensemble-scorer scoring/shap; <2 for langchain-community
 
 # Observability (task 31.1) — imported behind a guard in shared/metrics.py
+structlog = "24.4.0"                 # shared logging setup across services
+python-json-logger = "2.0.7"         # shared JSON log formatter
 prometheus-client = "0.21.1"
 prometheus-fastapi-instrumentator = "7.0.0"
 
