@@ -357,3 +357,286 @@ async def test_under_three_engines_yields_indeterminate_over_real_transports(
         if engine_service is not None:
             engine_service.stop()
         os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
+
+
+# ===========================================================================
+# Slice 3 — three engines reachable → DETERMINATE decision (graduates Slice 1)
+# ===========================================================================
+
+
+def _start_history_inconsistency_engine(jwks_url: str) -> LoopbackService:
+    """Start the History Inconsistency engine on loopback HTTP (no CRA adapter)."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    engine_main = load_service_module(
+        "history-inconsistency-engine",
+        "main",
+        siblings=[
+            "config",
+            "client",
+            "discrepancy",
+            "noc",
+            "llm_client",
+            "kafka_publisher",
+            "analysis",
+            "main",
+        ],
+    )
+    # No health_path: this engine's /healthz reports 200 once a CRA client
+    # object exists (built in lifespan), which it always is.
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+def _start_regional_analysis_engine(jwks_url: str) -> LoopbackService:
+    """Start the Regional Analysis engine on loopback HTTP (no adapters)."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    engine_main = load_service_module(
+        "regional-analysis-engine",
+        "main",
+        siblings=[
+            "config",
+            "client",
+            "detection",
+            "seasonality",
+            "forecast",
+            "providers",
+            "kafka_producer",
+            "main",
+        ],
+    )
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+def _start_ensemble_scorer(jwks_url: str) -> LoopbackService:
+    """Start the Ensemble Scorer on loopback HTTP (heuristic; no DB/models)."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ.pop("EI_ADS_PG_DSN", None)
+    os.environ.pop("EI_ADS_CLICKHOUSE_HOST", None)
+    scorer_main = load_service_module(
+        "ensemble-scorer", "main", siblings=["scorer", "repository", "main"]
+    )
+    return LoopbackService(scorer_main.app, health_path="/healthz").start()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_three_engines_yield_determinate_over_real_transports(
+    itest_service_auth,
+):
+    """Three engines reachable → ≥3 complete → scorer runs → DETERMINATE claim.scored.
+
+    This graduates the Slice-1 thread now that engines 2 & 3 exist: with the
+    Repetitive Pattern + History Inconsistency + Regional Analysis engines
+    reachable (the other three still absent → PARTIAL_RESULT), the ≥3-engine
+    minimum is met, so the pipeline runs the Ensemble Scorer and publishes a
+    DETERMINATE decision instead of INDETERMINATE (Req 2.2, 2.5).
+
+    No adapters are wired, so all three engines DEGRADE (DATA_UNAVAILABLE /
+    UNRESOLVED indicators). The heuristic scorer maps those (severity UNRESOLVED
+    = ordinal 0) to a low score → AUTO_APPROVE — a genuine determinate outcome
+    proving the ≥3 → scorer → publish path over real transports. Getting a
+    FLAG/INVESTIGATE decision additionally requires the mock-data adapters (a
+    later Slice 3 step).
+    """
+    from testcontainers.kafka import KafkaContainer  # guarded import
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
+    correlator_mod, engine_dispatch_mod, scoring_mod, publisher_mod, consumer_mod = (
+        _load_orchestrator_modules()
+    )
+    EventCorrelator = correlator_mod.EventCorrelator
+    InMemoryPairingStore = correlator_mod.InMemoryPairingStore
+    CLAIM_RECEIVED = correlator_mod.CLAIM_RECEIVED
+    ROE_RECEIVED = correlator_mod.ROE_RECEIVED
+
+    EngineDispatcher = engine_dispatch_mod.EngineDispatcher
+    EngineType = engine_dispatch_mod.EngineType
+    ALL_ENGINES = engine_dispatch_mod.ALL_ENGINES
+    ENGINE_ANALYZE_PATH = engine_dispatch_mod.ENGINE_ANALYZE_PATH
+    MIN_ENGINES_REQUIRED = engine_dispatch_mod.MIN_ENGINES_REQUIRED
+
+    ScoringClient = scoring_mod.ScoringClient
+    HttpxScorerCaller = scoring_mod.HttpxScorerCaller
+
+    ResultPublisher = publisher_mod.ResultPublisher
+    AIOKafkaProducerAdapter = publisher_mod.AIOKafkaProducerAdapter
+    CLAIM_SCORED_TOPIC = publisher_mod.CLAIM_SCORED_TOPIC
+
+    OrchestratorConsumer = consumer_mod.OrchestratorConsumer
+
+    from shared.models import RiskDecision
+
+    DETERMINATE = {
+        RiskDecision.AUTO_APPROVE.value,
+        RiskDecision.FLAG_FOR_REVIEW.value,
+        RiskDecision.INVESTIGATE.value,
+    }
+
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    os.environ["ORCHESTRATOR_SERVICE_TOKEN"] = token
+
+    services: list = []
+    kafka = None
+    orchestrator_consumer = producer = scored_consumer = kafka_adapter = None
+    scoring_client = None
+    try:
+        # ── Three real engines + the scorer on loopback HTTP. ───────────────
+        rpe = _start_repetitive_pattern_engine(jwks_url)
+        history = _start_history_inconsistency_engine(jwks_url)
+        regional = _start_regional_analysis_engine(jwks_url)
+        scorer = _start_ensemble_scorer(jwks_url)
+        services = [rpe, history, regional, scorer]
+
+        # Warm the shared JWKS cache once against a real engine.
+        warm = httpx.post(
+            f"{rpe.base_url}{ENGINE_ANALYZE_PATH}",
+            json={"sin_hash": "warmup"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+        assert warm.status_code == 200, warm.text
+
+        # Endpoints: the three implemented engines reachable; the other three at
+        # a CLOSED loopback port so they fail fast → PARTIAL_RESULT.
+        dead_port = _closed_loopback_port()
+        real = {
+            EngineType.REPETITIVE_PATTERN: rpe.base_url,
+            EngineType.HISTORY_INCONSISTENCY: history.base_url,
+            EngineType.REGIONAL_ANALYSIS: regional.base_url,
+        }
+        endpoints = {}
+        for engine in ALL_ENGINES:
+            base = real.get(engine, f"http://127.0.0.1:{dead_port}")
+            endpoints[engine] = f"{base}{ENGINE_ANALYZE_PATH}"
+        timeouts = {engine: 5000 for engine in ALL_ENGINES}
+
+        kafka = KafkaContainer()
+        kafka.start()
+        bootstrap = kafka.get_bootstrap_server()
+
+        dispatcher = EngineDispatcher(endpoints=endpoints, timeouts_ms=timeouts)
+        # REAL scorer call over loopback HTTP (not a spy) — must be invoked now.
+        scoring_client = ScoringClient(
+            HttpxScorerCaller(base_url=scorer.base_url), budget_ms=5000
+        )
+        kafka_adapter = AIOKafkaProducerAdapter(bootstrap_servers=bootstrap)
+        result_publisher = ResultPublisher(kafka_adapter, audit_sink=None)
+
+        captured: dict = {}
+
+        async def dispatch_callback(pair):
+            dispatch = await dispatcher.dispatch(pair.claim_payload, pair.roe_payload)
+            captured["dispatch"] = dispatch
+            outcome = await scoring_client.score(
+                dispatch.indicators,
+                dispatch.claim_id,
+                dispatch.engines_completed,
+                dispatch.engines_partial,
+                indeterminate=dispatch.indeterminate,
+            )
+            captured["outcome"] = outcome
+            await result_publisher.publish_scored(dispatch.claim_id, outcome)
+
+        store = InMemoryPairingStore()
+        correlator = EventCorrelator(store)
+        orchestrator_consumer = OrchestratorConsumer(
+            correlator,
+            dispatch_callback,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3-orchestrator",
+            degrade_gracefully=False,
+        )
+        assert await orchestrator_consumer.start() is True
+
+        scored_consumer = AIOKafkaConsumer(
+            CLAIM_SCORED_TOPIC,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3-assert",
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+        )
+        await scored_consumer.start()
+
+        # ── Produce paired events with the ENRICHED payloads the engines need. ─
+        claim_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        claim_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "a" * 64,
+            "employer_bn": "123456789RP0001",
+            "insurable_hours": "800",
+            "insurable_earnings": "25000",
+            "separation_date": "2024-03-15",
+            "claim_start_date": "2024-04-01",
+            "economic_region_code": "35",
+            "noc_code": "12345",
+            "received_at": now,
+        }
+        # ROE payload carries the employer-declared earnings (roe_earnings source).
+        roe_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "a" * 64,
+            "employer_bn": "123456789RP0001",
+            "insurable_earnings": "26500",
+            "received_at": now,
+        }
+
+        producer = AIOKafkaProducer(bootstrap_servers=bootstrap)
+        await producer.start()
+        for event_type, payload in (
+            (CLAIM_RECEIVED, claim_payload),
+            (ROE_RECEIVED, roe_payload),
+        ):
+            envelope = {"event_type": event_type, "claim_id": claim_id, "payload": payload}
+            await producer.send_and_wait(
+                event_type,
+                value=json.dumps(envelope).encode("utf-8"),
+                key=claim_id.encode("utf-8"),
+            )
+
+        # ── Await the claim.scored event (bounded). ─────────────────────────
+        scored = None
+        deadline = asyncio.get_event_loop().time() + 30.0
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                msg = await asyncio.wait_for(scored_consumer.getone(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
+            event = json.loads(msg.value.decode("utf-8"))
+            if event.get("claim_id") == claim_id:
+                scored = event
+                break
+
+        # ── Assertions: ≥3 engines complete → determinate decision. ─────────
+        dispatch = captured["dispatch"]
+        assert set(dispatch.engines_completed) == {
+            EngineType.REPETITIVE_PATTERN,
+            EngineType.HISTORY_INCONSISTENCY,
+            EngineType.REGIONAL_ANALYSIS,
+        }, dispatch.engines_completed
+        assert dispatch.completed_count >= MIN_ENGINES_REQUIRED
+        assert dispatch.indeterminate is False
+        # The real scorer was called (not short-circuited) and did not fall back.
+        assert captured["outcome"].fallback is False
+        assert scored is not None, "no claim.scored event observed for the claim"
+        assert scored["claim_id"] == claim_id
+        assert scored["risk_decision"] in DETERMINATE
+        assert scored["risk_decision"] != RiskDecision.INDETERMINATE.value
+        assert isinstance(scored["risk_score"], int)
+        assert 0 <= scored["risk_score"] <= 100
+    finally:
+        if producer is not None:
+            await producer.stop()
+        if scored_consumer is not None:
+            await scored_consumer.stop()
+        if orchestrator_consumer is not None:
+            await orchestrator_consumer.stop()
+        if kafka_adapter is not None:
+            await kafka_adapter.stop()
+        if scoring_client is not None:
+            await scoring_client.aclose()
+        if kafka is not None:
+            kafka.stop()
+        for svc in services:
+            svc.stop()
+        os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
