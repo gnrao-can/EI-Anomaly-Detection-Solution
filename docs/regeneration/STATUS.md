@@ -71,12 +71,12 @@ damage was in a thin wiring layer + duplicated/retrofitted services.
   section documenting the full role (auth gateway + read APIs), reconciling the design diagram
   (submission path only) with the tasks. Tests reworked off dev-auth onto the GCKey callback
   path (faked token exchange), asserting a real Bearer is forwarded. Portal unit tests: 49 pass.
-- **claim-intake dev-auth removal fallout (NEW, out of scope this session)**: 5 PRE-EXISTING
-  unit failures — `test_auth.py::TestClaimIntakeAppWiring::test_post_claims_as_claimant_returns_202`
-  and the 4 `test_claim_kafka_rollback.py::TestTwoPhaseCommit` cases — fail identically on
-  baseline (verified via `git stash`), independent of the portal work. Likely the tests still
-  expect intake's removed dev-auth/trusted-header path. Needs its own grounded fix (rework the
-  intake tests onto GCKey Bearer, same pattern as portal-backend). NOT addressed here.
+- **claim-intake unit test rot**: RESOLVED (d88791b). The 5 failures were NOT an auth-removal
+  problem — the tests POSTed `json=` to `/api/v1/claims`, which accepts multipart/form-data
+  (design line 145; Req 1.2), so FastAPI returned 422. Intake has no dev-auth code; it uses
+  `require_role(Role.CLAIMANT)` (GCKey Bearer/JWKS) only. Fixed the tests to post multipart
+  form data (`data=`) and corrected a stale `AUTH_MODE=dev` docstring line in intake. Full unit
+  suite now 1121 passed, 22 skipped, 0 failed.
 - **claim-intake**: NOW multipart (design line 145) + postal_code optional (Req 1.2) — CORRECT,
   keep. GCKey Bearer is the only auth (dev-auth accretion removed). 202 unit tests pass.
 - **Internal auth in tests**: engines + scorer require GCKey Bearer (Req 19.7). Integration
