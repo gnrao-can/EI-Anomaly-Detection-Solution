@@ -252,6 +252,46 @@ services:
         condition: service_started
     restart: unless-stopped
 
+  # ── History Inconsistency Engine (Slice 3 — engine #2) ─────
+  # Needs the CRA adapter (not composed yet) → degrades to an UNRESOLVED
+  # indicator, which still counts as a COMPLETION (200) so the >=3 rule is met.
+  history-inconsistency-engine:
+    build:
+      context: .
+      dockerfile: services/history-inconsistency-engine/Containerfile
+    container_name: ei-ads-history-inconsistency-engine
+    ports:
+      - "8010:8010"
+    environment:
+      GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
+      # CRA adapter URL (service not composed yet → engine degrades to UNRESOLVED).
+      CRA_ADAPTER_URL: "http://cra-adapter:8011"
+    depends_on:
+      jwks:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Regional Analysis Engine (Slice 3 — engine #3) ─────────
+  # Needs Stats Canada + Job Bank adapters (not composed yet) → degrades to
+  # DATA_UNAVAILABLE indicators, which still count as a COMPLETION (200).
+  regional-analysis-engine:
+    build:
+      context: .
+      dockerfile: services/regional-analysis-engine/Containerfile
+    container_name: ei-ads-regional-analysis-engine
+    ports:
+      - "8020:8020"
+    environment:
+      GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
+      # Adapters not composed yet → engine degrades to DATA_UNAVAILABLE. Set the
+      # real service names (the config defaults point at unroutable localhost).
+      STATSCAN_ADAPTER_URL: "http://stats-canada-adapter:8017"
+      JOB_BANK_ADAPTER_URL: "http://job-bank-adapter:8016"
+    depends_on:
+      jwks:
+        condition: service_started
+    restart: unless-stopped
+
   # ── Ensemble Scorer (heuristic fallback; no heavy ML) ──────
   ensemble-scorer:
     build:
@@ -282,10 +322,14 @@ services:
     environment:
       ORCHESTRATOR_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       ORCHESTRATOR_REDIS_URL: "redis://redis:6379"
-      # Only the Repetitive Pattern engine exists as a service; the other five
-      # point at unreachable hosts so they fail fast -> PARTIAL_RESULT, and the
-      # <3-engine rule yields INDETERMINATE (Req 2.5). Slice 3 adds the rest.
+      # THREE engines composed (Slice 3): repetitive-pattern + history-inconsistency
+      # + regional-analysis. They degrade (adapters absent) but still COMPLETE, so
+      # >=3 engines complete -> the pipeline runs the scorer -> DETERMINATE decision
+      # (Req 2.2). The remaining three engines (geographic, fraud-ring, document-
+      # forgery) point at unreachable hosts -> PARTIAL_RESULT until composed.
       ORCHESTRATOR_ENGINE_REPETITIVE_PATTERN_URL: "http://repetitive-pattern-engine:8021"
+      ORCHESTRATOR_ENGINE_HISTORY_INCONSISTENCY_URL: "http://history-inconsistency-engine:8010"
+      ORCHESTRATOR_ENGINE_REGIONAL_ANALYSIS_URL: "http://regional-analysis-engine:8020"
       ORCHESTRATOR_ENSEMBLE_SCORER_URL: "http://ensemble-scorer:8004"
     depends_on:
       kafka:
@@ -293,6 +337,10 @@ services:
       redis:
         condition: service_healthy
       repetitive-pattern-engine:
+        condition: service_started
+      history-inconsistency-engine:
+        condition: service_started
+      regional-analysis-engine:
         condition: service_started
       ensemble-scorer:
         condition: service_started
