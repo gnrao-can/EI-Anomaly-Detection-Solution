@@ -149,14 +149,34 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
   live service bring-up must be run in a human terminal. testcontainers containers are
   started/stopped WITHIN the pytest process, so the agent can drive the tests once the
   daemon is up.
-- **Slice 2**: Investigator Dashboard (React, demo look-and-feel) + portal backend
-  (GCKey exchange + Bearer-forward) reading claim.scored / risk_assessments.
-  - DONE (prereq): portal-backend reworked to the design role — GCKey-only auth +
-    Bearer-forward, dashboard read APIs retained (6f65603). See deviations above.
-  - REMAINING: the React investigator dashboard (demo look-and-feel) against the
-    corrected backend: flagged queue (SSE), claim detail + SHAP chart (a11y, EN/FR),
-    disposition form → outcome.feedback (Req 22.1–22.6, tasks 27.x); then an
-    integration test over real transports.
+- **Slice 2**: Investigator Dashboard (React) + portal backend reading
+  risk_assessments. DONE.
+  - portal-backend reworked to the design role — GCKey-only auth + Bearer-forward,
+    dashboard read APIs retained (6f65603).
+  - React investigator dashboard SPA (`services/claimant-portal`) was REVIEWED against
+    Req 22 (not just trusting its 131 green tests): 22.1–22.5 genuinely met by the
+    implementation (flagged queue fetch+filter+sort+SSE merge; detail with severity
+    badges + SHAP recharts chart + bilingual explanation via selectBilingual; SHAP
+    chart role=img + per-bar sr-only labels + hidden data table + EN/FR i18next).
+  - The review surfaced TWO real BACKEND gaps that green SPA unit tests could not catch,
+    both fixed (145133b):
+    1. **Req 22.6 access control** — the detail endpoint admitted REVIEWER (masked 200)
+       instead of denying; tightened to `require_roles(INVESTIGATOR, ADMINISTRATOR)`.
+    2. **Req 22.3 disposition persistence** — `record_disposition` targeted
+       nonexistent `risk_assessments.disposition/case_notes` columns (silent no-op)
+       while migration 004's `claim_dispositions` table was unused. Repointed to
+       INSERT into `claim_dispositions` (investigator_id = GCKey subject), detail reads
+       the current disposition via LEFT JOIN LATERAL; the write now raises on real DB
+       errors. Threaded the GCKey `sub` through Principal.subject + the session.
+  - Integration test over REAL transports (`tests/integration/test_slice2_dashboard_backend.py`):
+    testcontainers Postgres seeded via migrations 001–004 + real Kafka, portal-backend on
+    real loopback HTTP. Proves 22.1 (sorted flagged-only queue), 22.6 (REVIEWER/CLAIMANT
+    detail → 403; REVIEWER queue masked), 22.2 (detail w/ real indicators + SHAP),
+    22.3 (disposition persisted, detail reflects it), 22.4 (real outcome.feedback Kafka
+    event for CONFIRMED_FRAUD; none for NEEDS_FURTHER_REVIEW), 22.1 SSE frame.
+  - Verified: portal unit 50 pass; full unit 1122 pass/22 skip; full integration 27 pass.
+  - NOTE: the SPA's own frontend integration against a live backend (browser E2E) and
+    task 30's podman-compose full claimant→investigator flow remain as a later checkpoint.
 - **Slice 3+**: add the other 5 engines one at a time (each with an integration test);
   then the 8 adapters (mock-data fixtures locally); then LLM + graph services.
 - **Heavy-ML last**: Document Forgery (LayoutLM), Fraud Ring (GNN), LLM (Llama), Ensemble
