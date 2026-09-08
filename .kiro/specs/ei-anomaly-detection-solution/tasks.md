@@ -550,6 +550,15 @@ All open-source libraries are pinned to their latest stable versions as of Septe
 
 - [ ] 30. Checkpoint — Claimant Portal loads, submits a synthetic claim, and shows it in the Investigator Dashboard
   - Run `podman-compose up`; navigate the full claimant submission → investigator review flow manually. Ask the user if questions arise.
+  - STATUS (regen, Option 1): `podman-compose.yml` now composes the VERIFIED SLICE (postgres+migrations,
+    kafka/redis/otel, claim-intake, roe-adapter, pipeline-orchestrator, repetitive-pattern-engine,
+    ensemble-scorer, portal-backend, claimant-portal) behind a Caddy single-origin proxy, with a
+    local-dev JWKS + signed service token (Req 19.7). Images verified to build+boot; `podman-compose
+    config` clean. Bring-up recipe + honest scope in docs/regeneration/STATUS.md ("Task 30" section).
+  - NOT YET (deferred to Slice 3): with only 1 engine composed, the flow yields INDETERMINATE (Req 2.5),
+    so the DETERMINATE claimant→investigator walkthrough (AUTO_APPROVE/FLAG/INVESTIGATE) is not yet
+    demonstrable; GCKey login flow needs an IdP. Leave this box unchecked until Slice 3 adds ≥3 engines
+    and the manual determinate walkthrough is performed.
 
 ---
 

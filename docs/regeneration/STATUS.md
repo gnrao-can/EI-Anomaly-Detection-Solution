@@ -183,6 +183,45 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
   real models (XGBoost/IsolationForest) — need full stack / containers, not .venv-core.
 - **Final**: CP37-style k8s deploy + load (p99 ≤ 2000 ms) as the TRUE integration checkpoint.
 
+## Task 30 — local full-stack compose (Option 1: the verified slice)
+`podman-compose.yml` now composes the SLICE built + verified so far (not all 18 services):
+postgres (+ migrations 001–004 applied on init) + kafka/redis/otel, and the app services
+claim-intake, roe-adapter, pipeline-orchestrator, repetitive-pattern-engine, ensemble-scorer,
+portal-backend, claimant-portal — behind a Caddy single-origin proxy, with a local-dev JWKS +
+signed INVESTIGATOR service token for internal GCKey Bearer validation (Req 19.7 faithful; no
+bypass). `podman-compose config` lints clean; the engine + portal-backend images were verified
+to BUILD and BOOT.
+
+**Honest behaviour (hold until Slice 3):** only the Repetitive Pattern engine is composed, so a
+submitted claim correctly reaches the <3-engine **INDETERMINATE** decision (Req 2.5) — a claim
+flows intake → orchestrator → INDETERMINATE `claim.scored` → the investigator queue. The
+determinate scored flow (AUTO_APPROVE/FLAG/INVESTIGATE) is NOT yet walkable and that claim is
+deferred until Slice 3 adds ≥3 engines. The GCKey login flow is also not walkable locally (no
+IdP); the dashboard queue/detail/disposition read flow IS.
+
+**Bring-up recipe (run in a human terminal — the agent is server-guarded):**
+1. `podman machine start` (ensure a reachable daemon).
+2. `python scripts/dev/gen-service-token.py` (writes gitignored `.env.dev-token` + `scripts/dev/jwks/`).
+3. `podman-compose up --build` (first build is slow — services install the full pyproject incl. heavy ML).
+4. Browse `http://localhost:8080` (Caddy single origin → SPA + portal-backend).
+
+**Chain of pre-existing gaps found + fixed while doing task 30** (all "marked-done but never run"):
+- Orchestrator SERVICE entrypoint dispatched via a logging-only placeholder → wired the real
+  EngineDispatcher→ScoringClient→ResultPublisher chain (1270041).
+- `podman-compose.yml` had ZERO app services (infra only) → composed the verified slice (d048065).
+- All 18 service Containerfiles were unbuildable/non-running on the ubi9/python-311 base: build
+  RUN steps don't activate the `/opt/app-root` venv, so poetry installed where the runtime python
+  couldn't import. Fix: `ENV VIRTUAL_ENV=/opt/app-root` + runtime `COPY /opt/app-root` + drop the
+  bogus `pip install -e ./shared`; NO `USER 0` (d048065). Added the missing portal-backend Containerfile.
+- `pyproject.toml` was missing 6 runtime deps the code imports at load (python-jose, pydantic-settings,
+  python-multipart, structlog, python-json-logger, numpy) — versions pinned to RESOLVE against the
+  full graph incl. langchain-community (pydantic-settings 2.7.0, numpy 1.26.4) (d048065).
+
+**Deferred/known (not blocking task 30):** `requirements.lock` (tracked) has drifted from the
+poetry `pyproject.toml` the images build from — reconcile later. Services install the FULL pyproject
+(incl. torch/transformers/llama-cpp) even when they don't need ML — no per-service dependency groups,
+so images are large; a future cleanup could add poetry extras/groups per service.
+
 ## Process rules (to prevent re-fragility)
 - No seam is "done" until an integration test exercises it over REAL transports.
 - Do changes in small verified steps; do NOT delegate large multi-service tasks to a
