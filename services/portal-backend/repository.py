@@ -180,18 +180,24 @@ SELECT
     ra.shap_base_value,
     ra.explanation_en,
     ra.explanation_fr,
-    ra.disposition,
-    ra.case_notes
+    cd.disposition,
+    cd.case_notes
 FROM claims c
 JOIN LATERAL (
     SELECT assessment_id, risk_score, risk_decision, shap_base_value,
-           explanation_en, explanation_fr,
-           NULL::text AS disposition, NULL::text AS case_notes
+           explanation_en, explanation_fr
     FROM risk_assessments
     WHERE claim_id = c.claim_id
     ORDER BY scored_at DESC
     LIMIT 1
 ) ra ON TRUE
+LEFT JOIN LATERAL (
+    SELECT disposition, case_notes
+    FROM claim_dispositions
+    WHERE claim_id = c.claim_id
+    ORDER BY created_at DESC
+    LIMIT 1
+) cd ON TRUE
 WHERE c.claim_id = $1
 """
 
@@ -233,23 +239,16 @@ RETURNING claim_id, status
 """
 
 
-# Persist a disposition + case notes on the latest assessment for a claim.
-# The migration schema does not (yet) carry disposition columns, so we store
-# the decision as a claim status transition and keep the notes/ disposition in
-# a dedicated table when present; the real deployment adds these columns. To
-# stay import-safe and degrade cleanly, the write path is best-effort.
-_UPDATE_DISPOSITION_SQL = """
-UPDATE risk_assessments AS ra
-SET disposition = $2, case_notes = $3
-FROM (
-    SELECT assessment_id
-    FROM risk_assessments
-    WHERE claim_id = $1
-    ORDER BY scored_at DESC
-    LIMIT 1
-) latest
-WHERE ra.assessment_id = latest.assessment_id
-RETURNING ra.claim_id
+# Record a disposition + case notes for a claim. Dispositions are stored in the
+# dedicated ``claim_dispositions`` table (migration 004) — an append-only case
+# record keyed by claim_id, disposition, case_notes and the investigator's GCKey
+# subject (investigator_id). The "current" disposition is the latest by
+# created_at (see the detail read's LEFT JOIN LATERAL). All values are bound as
+# parameters — no user value is interpolated into the SQL string.
+_INSERT_DISPOSITION_SQL = """
+INSERT INTO claim_dispositions (claim_id, disposition, case_notes, investigator_id)
+VALUES ($1, $2, $3, $4)
+RETURNING claim_id
 """
 
 
@@ -376,20 +375,28 @@ class PortalRepository:
         }
 
     async def record_disposition(
-        self, claim_id: str, disposition: str, case_notes: str
+        self,
+        claim_id: str,
+        disposition: str,
+        case_notes: str,
+        *,
+        investigator_id: str,
     ) -> bool:
-        """Persist *disposition* and *case_notes* for the latest assessment.
+        """Record *disposition* + *case_notes* in ``claim_dispositions`` (Req 22.3).
 
-        Returns ``True`` when a row was updated. Best-effort: if the deployed
-        schema lacks the disposition columns the update simply affects no rows
-        and returns ``False`` rather than raising.
+        Appends a case record attributed to *investigator_id* (the recorder's
+        GCKey subject). Returns ``True`` when the row was inserted. Raises on a
+        real database error (e.g. an invalid ``disposition`` violating the CHECK
+        constraint, or a missing claim FK) so callers surface genuine failures
+        rather than silently dropping the audit-relevant case outcome.
         """
-        try:
-            row = await self._pool.fetchrow(
-                _UPDATE_DISPOSITION_SQL, claim_id, disposition, case_notes
-            )
-        except Exception:  # noqa: BLE001 - schema may lack columns in local dev
-            return False
+        row = await self._pool.fetchrow(
+            _INSERT_DISPOSITION_SQL,
+            claim_id,
+            disposition,
+            case_notes,
+            investigator_id,
+        )
         return row is not None
 
     async def create_claim(
@@ -563,13 +570,19 @@ class FakePortalRepository:
         }
 
     async def record_disposition(
-        self, claim_id: str, disposition: str, case_notes: str
+        self,
+        claim_id: str,
+        disposition: str,
+        case_notes: str,
+        *,
+        investigator_id: str = "",
     ) -> bool:
         claim = self._claims.get(claim_id)
         if claim is None:
             return False
         claim["disposition"] = disposition
         claim["case_notes"] = case_notes
+        claim["investigator_id"] = investigator_id
         return True
 
     async def create_claim(

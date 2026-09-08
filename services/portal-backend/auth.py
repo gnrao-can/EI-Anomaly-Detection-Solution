@@ -77,11 +77,17 @@ class Principal:
         ``Authorization: Bearer`` header on downstream Claim Intake calls
         (design GCKey flow "Forward with Bearer token"; Req 19.7). ``None`` for
         read-only sessions that never call a downstream API.
+    subject:
+        The authenticated principal's GCKey ``sub`` (subject) identifier. Used
+        as ``investigator_id`` when recording a disposition (Req 22.3;
+        ``claim_dispositions.investigator_id``). ``None`` when the token carried
+        no subject.
     """
 
     role: Role
     sin_hash: Optional[str] = None
     access_token: Optional[str] = None
+    subject: Optional[str] = None
 
     @property
     def roles(self) -> set[Role]:
@@ -205,10 +211,15 @@ def _principal_from_payload(payload: dict[str, Any]) -> Principal:
     if access_token is not None and not isinstance(access_token, str):
         raise SessionError("Invalid access_token in session.")
 
+    subject = payload.get("subject")
+    if subject is not None and not isinstance(subject, str):
+        raise SessionError("Invalid subject in session.")
+
     return Principal(
         role=role,
         sin_hash=sin_hash or None,
         access_token=access_token or None,
+        subject=subject or None,
     )
 
 

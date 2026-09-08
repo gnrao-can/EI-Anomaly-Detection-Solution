@@ -148,7 +148,9 @@ def _fake_gckey(monkeypatch, role="CLAIMANT", sin_hash=None, access_token=TEST_A
         return {"access_token": access_token, "id_token": "fake.id.token"}
 
     def _fake_principal_fields(id_token):
-        return (Role(role.upper()), sin_hash)
+        # Mirrors gckey.principal_fields_from_id_token -> (role, sin_hash, subject).
+        subject = f"gckey-sub-{role.lower()}"
+        return (Role(role.upper()), sin_hash, subject)
 
     monkeypatch.setattr(_gckey, "exchange_code_for_tokens", _fake_exchange)
     monkeypatch.setattr(_gckey, "principal_fields_from_id_token", _fake_principal_fields)
@@ -474,15 +476,25 @@ class TestInvestigatorDetail:
         assert set(body["shap_attributions"][0].keys()) == self.SHAP_KEYS
         assert set(body["indicators"][0].keys()) == self.INDICATOR_KEYS
 
-    def test_detail_reviewer_masked(self, client, repo):
+    def test_detail_reviewer_denied_403(self, client, repo):
+        # Req 22.6: only INVESTIGATOR/ADMINISTRATOR may access flagged claim
+        # DETAILS. REVIEWER is limited to the masked queue + SSE and must be
+        # denied at the detail endpoint (not merely served masked data).
         _seed_flagged(repo, "c-1", claimant_name="Jane Doe", claimant_sin="123-456-789")
         resp = client.get(
             "/portal/investigator/claims/c-1", cookies=_session_cookie("REVIEWER")
         )
+        assert resp.status_code == 403
+
+    def test_detail_administrator_allowed_unmasked(self, client, repo):
+        # ADMINISTRATOR is a superuser: full unmasked detail access (Req 22.6).
+        _seed_flagged(repo, "c-1", claimant_name="Jane Doe", claimant_sin="123-456-789")
+        resp = client.get(
+            "/portal/investigator/claims/c-1", cookies=_session_cookie("ADMINISTRATOR")
+        )
+        assert resp.status_code == 200
         body = resp.json()
-        assert body["claimant_name"] is None
-        assert body["claimant_sin"] == "***-**-789"
-        # Non-PII risk data still present for triage.
+        assert body["claimant_name"] == "Jane Doe"
         assert body["risk_score"] == 88
 
     def test_detail_absent_404(self, client):

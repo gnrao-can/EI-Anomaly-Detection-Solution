@@ -260,6 +260,7 @@ def _set_session_cookie(
     sin_hash: Optional[str],
     preferred_language: Optional[str] = None,
     access_token: Optional[str] = None,
+    subject: Optional[str] = None,
 ) -> None:
     """Sign and attach the session cookie for *role*/*sin_hash*.
 
@@ -281,6 +282,8 @@ def _set_session_cookie(
         payload["preferred_language"] = preferred_language
     if access_token:
         payload["access_token"] = access_token
+    if subject:
+        payload["subject"] = subject
     token = sign_session(
         payload,
         settings.session_secret,
@@ -579,8 +582,8 @@ async def _complete_gckey_exchange(
     pkce_cookie: Optional[str],
     *,
     code_verifier: Optional[str] = None,
-) -> tuple[Role, Optional[str], Optional[str]]:
-    """Exchange a GCKey authorization ``code`` for ``(role, sin_hash, access_token)``.
+) -> tuple[Role, Optional[str], Optional[str], Optional[str]]:
+    """Exchange a GCKey code for ``(role, sin_hash, access_token, subject)``.
 
     Shared by the GET ``/auth/gckey/callback`` (browser redirect) and the POST
     ``/auth/callback`` (SPA fetch) handlers. When ``code_verifier`` is supplied
@@ -617,23 +620,25 @@ async def _complete_gckey_exchange(
         code_verifier=verifier,
     )
     id_token = tokens.get("id_token") or tokens.get("access_token") or ""
-    role, sin_hash = gckey.principal_fields_from_id_token(id_token)
+    role, sin_hash, subject = gckey.principal_fields_from_id_token(id_token)
     # The Bearer forwarded downstream is the access token (falls back to the
     # id_token when the IdP returns only that, as some test IdPs do).
     access_token = tokens.get("access_token") or tokens.get("id_token") or ""
-    return role, sin_hash, access_token or None
+    return role, sin_hash, access_token or None, subject
 
 
 @app.get("/auth/gckey/callback")
 async def gckey_callback(request: Request, code: str = "", state: str = "") -> Response:
     """Complete the GCKey flow: exchange the code, validate the ID token, set cookie."""
-    role, sin_hash, access_token = await _complete_gckey_exchange(
+    role, sin_hash, access_token, subject = await _complete_gckey_exchange(
         code, state, request.cookies.get("gckey_pkce")
     )
 
     response = RedirectResponse(url="/", status_code=302)
     response.delete_cookie("gckey_pkce", path="/")
-    _set_session_cookie(response, role, sin_hash, access_token=access_token)
+    _set_session_cookie(
+        response, role, sin_hash, access_token=access_token, subject=subject
+    )
     return response
 
 
@@ -646,7 +651,7 @@ async def gckey_callback_post(request: Request, body: CallbackRequest) -> Respon
     access token for downstream Bearer-forward), and returns 200 (the SPA only
     checks ``response.ok`` then calls ``fetchSession``).
     """
-    role, sin_hash, access_token = await _complete_gckey_exchange(
+    role, sin_hash, access_token, subject = await _complete_gckey_exchange(
         body.code,
         state="",
         pkce_cookie=request.cookies.get("gckey_pkce"),
@@ -655,7 +660,9 @@ async def gckey_callback_post(request: Request, body: CallbackRequest) -> Respon
 
     response = JSONResponse(content={"status": "ok"})
     response.delete_cookie("gckey_pkce", path="/")
-    _set_session_cookie(response, role, sin_hash, access_token=access_token)
+    _set_session_cookie(
+        response, role, sin_hash, access_token=access_token, subject=subject
+    )
     return response
 
 
@@ -721,9 +728,16 @@ async def list_flagged_claims(
 @app.get("/portal/investigator/claims/{claim_id}")
 async def get_investigator_claim(
     claim_id: str,
-    principal: Principal = Depends(require_roles(*INVESTIGATOR_ROLES)),
+    principal: Principal = Depends(
+        require_roles(Role.INVESTIGATOR, Role.ADMINISTRATOR)
+    ),
 ) -> JSONResponse:
-    """Return the full assessment for a flagged claim. 404 when absent."""
+    """Return the full assessment for a flagged claim. 404 when absent.
+
+    Req 22.6: only INVESTIGATOR or ADMINISTRATOR may access flagged claim
+    DETAILS (REVIEWER is limited to the masked queue + SSE, and is denied here
+    with 403). This matches the disposition endpoint's guard.
+    """
     detail = await _repository().get_claim_detail(claim_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Claim not found.")
@@ -752,7 +766,10 @@ async def put_disposition(
         )
 
     await _repository().record_disposition(
-        claim_id, body.disposition, body.case_notes
+        claim_id,
+        body.disposition,
+        body.case_notes,
+        investigator_id=principal.subject or principal.role.value,
     )
 
     if body.disposition in FEEDBACK_DISPOSITIONS:

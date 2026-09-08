@@ -118,12 +118,16 @@ async def exchange_code_for_tokens(
         return response.json()
 
 
-def principal_fields_from_id_token(id_token: str) -> tuple[Role, Optional[str]]:
-    """Validate a GCKey ID token and derive ``(role, sin_hash)``.
+def principal_fields_from_id_token(
+    id_token: str,
+) -> tuple[Role, Optional[str], Optional[str]]:
+    """Validate a GCKey ID token and derive ``(role, sin_hash, subject)``.
 
     The token signature/expiry/issuer are validated by
     :func:`shared.auth.validate_gckey_token`. The highest-privilege role present
-    in the claims is selected; ``sin_hash`` is read from the ``sin_hash`` claim.
+    in the claims is selected; ``sin_hash`` is read from the ``sin_hash`` claim;
+    ``subject`` is the GCKey ``sub`` (used as ``investigator_id`` when a staff
+    principal records a disposition — Req 22.3).
     """
     claims = validate_gckey_token(id_token)
     roles = extract_roles(claims)
@@ -144,4 +148,9 @@ def principal_fields_from_id_token(id_token: str) -> tuple[Role, Optional[str]]:
     sin_hash = claims.get("sin_hash")
     if not isinstance(sin_hash, str):
         sin_hash = None
-    return role, sin_hash
+
+    subject = claims.get("sub")
+    if not isinstance(subject, str):
+        subject = None
+
+    return role, sin_hash, subject
