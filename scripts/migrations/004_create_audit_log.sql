@@ -7,11 +7,15 @@
 --
 -- Idempotent: safe to run multiple times.
 --
--- SECURITY NOTE: The audit_log table uses Row-Level Security to enforce
--- immutability. The application role (ei_ads_app) is granted INSERT only.
--- No UPDATE or DELETE policy is defined, so those operations are blocked
--- for all roles except superusers. This implements the 7-year immutable
--- audit trail required by Requirement 19.3 and the design's security spec.
+-- SECURITY NOTE: The audit_log table is APPEND-ONLY and immutable. INSERT is
+-- permitted; UPDATE and DELETE are actively refused with insufficient_privilege
+-- (SQLSTATE 42501) by a BEFORE UPDATE OR DELETE trigger. Row-Level Security is
+-- enabled with INSERT + visibility policies so existing rows remain visible to
+-- a mutation attempt (otherwise RLS would silently filter them and an UPDATE
+-- would report "UPDATE 0" instead of failing). The trigger fires even for a
+-- role holding UPDATE/DELETE table privileges. This implements the 7-year
+-- immutable audit trail required by Requirements 2.7 and 19.3 and the design's
+-- security spec ("Audit Log Immutability").
 -- =============================================================================
 
 -- ---------------------------------------------------------------------------
@@ -43,9 +47,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 COMMENT ON TABLE audit_log IS
-    'Immutable append-only audit log. Row-Level Security enforces INSERT-only access '
-    'for the application role. No UPDATE or DELETE policy → rows cannot be modified. '
-    '7-year retention; Protected B.';
+    'Immutable append-only audit log. INSERT is permitted; UPDATE and DELETE are '
+    'refused with insufficient_privilege (42501) by the trg_audit_log_immutable '
+    'trigger, so rows cannot be modified or removed. 7-year retention; Protected B.';
 
 COMMENT ON COLUMN audit_log.component IS
     'Name of the EI-ADS service or component that generated this log entry '
@@ -77,25 +81,87 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_component
     ON audit_log (component);
 
 -- ---------------------------------------------------------------------------
--- Row-Level Security: enforce INSERT-only access for the application role
+-- Immutability enforcement: append-only audit_log (Req 2.7, 19.3)
 -- ---------------------------------------------------------------------------
 -- The ei_ads_app role is the application database user used by all EI-ADS
--- services. By enabling RLS and defining only an INSERT policy, any attempt
--- to UPDATE or DELETE rows will be blocked (no matching policy → denied).
--- Superusers bypass RLS; all application writes go through ei_ads_app.
+-- services. The audit_log must be APPEND-ONLY: INSERT is permitted, but any
+-- UPDATE or DELETE MUST be actively refused with a permission error.
+--
+-- IMPORTANT — Postgres RLS semantics (why an INSERT-only policy is NOT enough):
+--   With RLS enabled and only a FOR INSERT policy, an UPDATE or DELETE does not
+--   raise an error — it simply finds NO rows visible to modify and reports
+--   "UPDATE 0" / "DELETE 0". That is silent tampering-tolerance, not
+--   immutability: a caller (or attacker) receives a SUCCESS response while
+--   believing they altered the audit history. For a Protected B audit trail
+--   that is unacceptable.
+--
+-- Correct enforcement (verified against PostgreSQL 16):
+--   1. Enable RLS with permissive INSERT + SELECT policies so the application
+--      can append and read audit rows, and so existing rows ARE visible to an
+--      UPDATE/DELETE attempt (rather than being silently filtered to zero).
+--   2. A BEFORE UPDATE OR DELETE trigger raises insufficient_privilege (42501)
+--      for every affected row, so the mutation is REFUSED — regardless of any
+--      table-level UPDATE/DELETE GRANT the role may hold. Superusers bypass RLS
+--      but the trigger still fires, so even administrative UPDATE/DELETE is
+--      blocked; intentional corrections must DROP the trigger deliberately.
 -- ---------------------------------------------------------------------------
 
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 
--- INSERT-only policy: allows the application to append new audit records.
--- The WITH CHECK (true) clause permits all inserts unconditionally.
--- Absence of UPDATE and DELETE policies means those operations are denied
--- for all non-superuser roles, implementing the immutability requirement.
+-- Permissive INSERT policy: the application may append new audit records.
 DROP POLICY IF EXISTS audit_log_insert_only ON audit_log;
 CREATE POLICY audit_log_insert_only
     ON audit_log
     FOR INSERT
     WITH CHECK (true);
+
+-- Permissive SELECT policy: audit rows are readable.
+DROP POLICY IF EXISTS audit_log_select ON audit_log;
+CREATE POLICY audit_log_select
+    ON audit_log
+    FOR SELECT
+    USING (true);
+
+-- Permissive UPDATE/DELETE VISIBILITY policies. These do NOT authorise
+-- mutation — they exist so that an UPDATE/DELETE attempt SEES the existing rows
+-- (USING (true)) instead of RLS silently filtering them to zero ("UPDATE 0").
+-- With the rows visible, the BEFORE UPDATE OR DELETE trigger below fires and
+-- refuses the operation with 42501. Without these policies the trigger never
+-- runs and tampering appears to "succeed" against zero rows.
+DROP POLICY IF EXISTS audit_log_update_visible ON audit_log;
+CREATE POLICY audit_log_update_visible
+    ON audit_log
+    FOR UPDATE
+    USING (true);
+
+DROP POLICY IF EXISTS audit_log_delete_visible ON audit_log;
+CREATE POLICY audit_log_delete_visible
+    ON audit_log
+    FOR DELETE
+    USING (true);
+
+-- The immutability trigger: refuse every UPDATE/DELETE with 42501.
+CREATE OR REPLACE FUNCTION audit_log_reject_mutation()
+    RETURNS trigger
+    LANGUAGE plpgsql
+AS $$
+BEGIN
+    RAISE EXCEPTION
+        'audit_log is append-only and immutable; % is not permitted', TG_OP
+        USING ERRCODE = '42501';
+END;
+$$;
+
+COMMENT ON FUNCTION audit_log_reject_mutation() IS
+    'Enforces audit_log immutability (Req 2.7, 19.3): raises insufficient_privilege '
+    '(42501) on any UPDATE or DELETE so the append-only audit trail cannot be tampered '
+    'with, even by a role holding UPDATE/DELETE table privileges.';
+
+DROP TRIGGER IF EXISTS trg_audit_log_immutable ON audit_log;
+CREATE TRIGGER trg_audit_log_immutable
+    BEFORE UPDATE OR DELETE ON audit_log
+    FOR EACH ROW
+    EXECUTE FUNCTION audit_log_reject_mutation();
 
 -- ---------------------------------------------------------------------------
 -- Table: claim_dispositions

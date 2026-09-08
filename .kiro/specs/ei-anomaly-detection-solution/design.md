@@ -1127,14 +1127,42 @@ Role enforcement: OAuth 2.0 scopes in GCKey token map to EI-ADS roles. All API e
 
 ### Audit Log Immutability
 
-The audit log in PostgreSQL uses row-level security:
+The audit log in PostgreSQL is append-only: `INSERT` is permitted, but `UPDATE`
+and `DELETE` are actively refused with `insufficient_privilege` (SQLSTATE 42501).
+
+> Note on Postgres RLS semantics: an INSERT-only RLS policy is NOT sufficient to
+> make a table immutable. With RLS enabled and no `FOR UPDATE`/`FOR DELETE`
+> policy, an UPDATE/DELETE does not raise — it finds no rows visible to modify
+> and silently reports `UPDATE 0` / `DELETE 0`. That is tamper-tolerance, not
+> immutability. Enforcement therefore combines RLS (so rows remain visible to a
+> mutation attempt) with a `BEFORE UPDATE OR DELETE` trigger that raises 42501,
+> which holds even for a role granted UPDATE/DELETE privileges.
+
 ```sql
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
-CREATE POLICY audit_insert_only ON audit_log FOR INSERT TO ei_ads_app WITH CHECK (TRUE);
--- No UPDATE or DELETE policy → immutable
+
+-- Append + read are allowed; existing rows stay visible to a mutation attempt
+-- so the trigger below fires (rather than RLS silently filtering to zero rows).
+CREATE POLICY audit_log_insert_only ON audit_log FOR INSERT WITH CHECK (TRUE);
+CREATE POLICY audit_log_select      ON audit_log FOR SELECT USING (TRUE);
+
+-- Immutability: refuse every UPDATE/DELETE with insufficient_privilege (42501).
+CREATE OR REPLACE FUNCTION audit_log_reject_mutation() RETURNS trigger
+    LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'audit_log is append-only and immutable; % is not permitted',
+        TG_OP USING ERRCODE = '42501';
+END; $$;
+
+CREATE TRIGGER trg_audit_log_immutable
+    BEFORE UPDATE OR DELETE ON audit_log
+    FOR EACH ROW EXECUTE FUNCTION audit_log_reject_mutation();
 ```
 
-ClickHouse `adapter_audit_log` uses `MergeTree` engine without `ReplacingMergeTree` or `CollapsingMergeTree`, ensuring no row replacement.
+See `scripts/migrations/004_create_audit_log.sql` for the authoritative,
+idempotent migration. ClickHouse `adapter_audit_log` uses the `MergeTree` engine
+without `ReplacingMergeTree` or `CollapsingMergeTree`, ensuring no row
+replacement.
 
 ---
 

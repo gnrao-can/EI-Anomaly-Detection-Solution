@@ -50,3 +50,6 @@ temp/
 
 # Local core-services dev venv (Python 3.11 subset)
 .venv-core/
+
+# Local integration-test venv (core subset + testcontainers)
+.venv-itest/

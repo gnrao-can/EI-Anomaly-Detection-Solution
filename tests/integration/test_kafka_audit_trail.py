@@ -224,17 +224,24 @@ async def test_audit_entry_written_within_500ms_per_adapter_call_in_process():
     assert AUDIT_BUDGET_MS == AUDIT_WRITE_BUDGET_MS
 
 
-def test_audit_log_migration_defines_insert_only_rls_policy():
-    """The 004 migration enables RLS with an INSERT-only policy and no UPDATE.
+def test_audit_log_migration_enforces_immutability():
+    """The 004 migration makes ``audit_log`` append-only and immutable.
 
-    Requirement 19.3: the audit log is immutable. Immutability is enforced by
-    enabling Row-Level Security on ``audit_log`` and defining ONLY an INSERT
-    policy — the absence of any UPDATE/DELETE policy is exactly what makes an
-    UPDATE fail for the application role. This test asserts that structural
-    guarantee statically; the container-backed test below proves the runtime
-    behaviour (an actual UPDATE is denied).
+    Requirement 2.7 / 19.3: the audit log is immutable. Immutability is enforced
+    by enabling Row-Level Security on ``audit_log`` (so INSERT is allowed and
+    existing rows remain visible to a mutation attempt) PLUS a
+    ``BEFORE UPDATE OR DELETE`` trigger that raises ``insufficient_privilege``
+    (SQLSTATE 42501) for every affected row.
 
-    Validates: Requirements 19.3
+    Note: an INSERT-only RLS policy alone is NOT sufficient — with no
+    UPDATE/DELETE visibility policy, an UPDATE/DELETE does not error; it finds no
+    rows visible and silently reports ``UPDATE 0`` / ``DELETE 0`` (tamper
+    tolerance, not immutability). The trigger is what turns the attempt into a
+    hard 42501 denial. This test asserts that structural guarantee statically;
+    the container-backed test below proves the runtime behaviour (an actual
+    UPDATE is denied with 42501).
+
+    Validates: Requirements 2.7, 19.3
     """
     repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     migration = os.path.join(
@@ -250,18 +257,24 @@ def test_audit_log_migration_defines_insert_only_rls_policy():
         r"ALTER\s+TABLE\s+AUDIT_LOG\s+ENABLE\s+ROW\s+LEVEL\s+SECURITY", normalized
     ), "audit_log must ENABLE ROW LEVEL SECURITY"
 
-    # An INSERT-only policy exists.
+    # An INSERT policy exists so the application can append audit rows.
     assert re.search(
         r"CREATE\s+POLICY\s+\w+\s+ON\s+AUDIT_LOG\s+FOR\s+INSERT", normalized
-    ), "audit_log must define a FOR INSERT policy"
+    ), "audit_log must define a FOR INSERT policy (append-only writes)"
 
-    # There is NO UPDATE or DELETE policy on audit_log (that omission is what
-    # denies UPDATE/DELETE for the application role).
-    assert not re.search(r"CREATE\s+POLICY\s+\w+\s+ON\s+AUDIT_LOG\s+FOR\s+UPDATE", normalized), (
-        "audit_log must NOT define a FOR UPDATE policy (immutability)"
+    # A BEFORE UPDATE OR DELETE trigger enforces immutability by raising 42501.
+    assert re.search(
+        r"CREATE\s+TRIGGER\s+\w+\s+BEFORE\s+UPDATE\s+OR\s+DELETE\s+ON\s+AUDIT_LOG",
+        normalized,
+    ), (
+        "audit_log must define a BEFORE UPDATE OR DELETE trigger to enforce "
+        "immutability (an INSERT-only RLS policy alone silently no-ops mutations)"
     )
-    assert not re.search(r"CREATE\s+POLICY\s+\w+\s+ON\s+AUDIT_LOG\s+FOR\s+DELETE", normalized), (
-        "audit_log must NOT define a FOR DELETE policy (immutability)"
+
+    # The trigger function raises insufficient_privilege (SQLSTATE 42501).
+    assert "42501" in normalized, (
+        "the immutability trigger must raise insufficient_privilege (SQLSTATE "
+        "42501) on UPDATE/DELETE"
     )
 
 
