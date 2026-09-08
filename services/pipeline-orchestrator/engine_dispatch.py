@@ -68,7 +68,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Any, Awaitable, Callable, Optional
 
 try:  # OpenTelemetry span helpers (shared source of truth; task 32.1 / Req 21.5)
@@ -246,33 +246,116 @@ def _build_engine_request(
 ) -> dict[str, Any]:
     """Build a detection engine's flat ``/engine/analyze`` request body.
 
-    Engines expect the flat ``AnalyzeRequest`` shape (``sin_hash`` required, plus
-    optional ``claim_id`` / ``employer_bn`` / ``insurable_hours`` /
-    ``economic_region_code`` / ``separation_date``), NOT a ``{claim, roe}``
-    envelope. We assemble those fields from the paired ``claim.received`` /
-    ``roe.received`` payloads, preferring the claim payload and falling back to
-    the ROE payload. Fields absent from both are simply omitted — they are
-    optional on the engine, which fetches history by ``sin_hash``.
+    Engines expect a flat ``AnalyzeRequest`` (``sin_hash`` required plus a set of
+    per-engine fields), NOT a ``{claim, roe}`` envelope. We assemble a SUPERSET
+    body carrying every field the six engines accept, from the paired
+    ``claim.received`` / ``roe.received`` payloads; each engine's Pydantic model
+    ignores fields it does not declare, so one superset request serves all.
+
+    Field sourcing (design-faithful):
+      * Most fields come from the enriched ``claim.received`` payload
+        (employer_bn, insurable_hours/earnings, separation/claim dates,
+        economic_region_code, noc_code), falling back to the ROE payload.
+      * ``roe_earnings`` (History Inconsistency, Req 6.4) is the EMPLOYER-declared
+        ROE earnings, sourced specifically from the ``roe.received`` payload's
+        ``insurable_earnings`` (the ROE Adapter publishes the canonical Claim),
+        not the claimant-declared claim figure.
+      * Three engine inputs are DERIVED here because they are not carried on the
+        events: ``tax_year`` (year of the separation date — History, Req 6.1),
+        ``reference_month`` (the month BEFORE claim start, ``YYYY-MM`` — Regional,
+        Req 8.1), and ``insurable_hourly_earnings`` (earnings / hours — Regional,
+        Req 8.6). Each derivation is best-effort; on bad/absent inputs the field
+        is simply omitted and the engine degrades (DATA_UNAVAILABLE/UNRESOLVED).
     """
+    claim_src = claim_payload if isinstance(claim_payload, dict) else {}
+    roe_src = roe_payload if isinstance(roe_payload, dict) else {}
     merged: dict[str, Any] = {}
-    for src in (roe_payload, claim_payload):  # claim overrides roe on conflict
-        if isinstance(src, dict):
-            merged.update(src)
+    for src in (roe_src, claim_src):  # claim overrides roe on conflict
+        merged.update(src)
 
     body: dict[str, Any] = {}
     if merged.get("sin_hash") is not None:
         body["sin_hash"] = merged["sin_hash"]
+
+    # Straight pass-through of every field the engines accept, when present.
     for field_name in (
         "claim_id",
         "employer_bn",
         "insurable_hours",
+        "insurable_earnings",
         "economic_region_code",
+        "noc_code",
         "separation_date",
+        "claim_start_date",
     ):
         value = merged.get(field_name)
         if value is not None:
             body[field_name] = value
+
+    # roe_earnings: the EMPLOYER-declared ROE earnings (History Inconsistency).
+    roe_earnings = roe_src.get("insurable_earnings")
+    if roe_earnings is not None:
+        body["roe_earnings"] = str(roe_earnings)
+
+    # tax_year: the calendar year of the separation date (History Inconsistency).
+    tax_year = _year_of(merged.get("separation_date"))
+    if tax_year is not None:
+        body["tax_year"] = tax_year
+
+    # reference_month: the month immediately BEFORE the claim start (Regional).
+    reference_month = _month_before(
+        merged.get("claim_start_date") or merged.get("separation_date")
+    )
+    if reference_month is not None:
+        body["reference_month"] = reference_month
+
+    # insurable_hourly_earnings: earnings / hours (Regional, Req 8.6).
+    hourly = _safe_hourly(
+        merged.get("insurable_earnings"), merged.get("insurable_hours")
+    )
+    if hourly is not None:
+        body["insurable_hourly_earnings"] = hourly
+
     return body
+
+
+def _year_of(iso_date: Any) -> Optional[int]:
+    """Return the year of an ISO ``YYYY-MM-DD`` date string, or ``None``."""
+    if not iso_date:
+        return None
+    try:
+        return int(str(iso_date)[:4])
+    except (ValueError, TypeError):
+        return None
+
+
+def _month_before(iso_date: Any) -> Optional[str]:
+    """Return the ``YYYY-MM`` of the month before an ISO date, or ``None``."""
+    if not iso_date:
+        return None
+    try:
+        d = datetime.fromisoformat(str(iso_date)).date() if "T" in str(iso_date) \
+            else date.fromisoformat(str(iso_date)[:10])
+    except (ValueError, TypeError):
+        return None
+    year, month = d.year, d.month
+    if month == 1:
+        year, month = year - 1, 12
+    else:
+        month -= 1
+    return f"{year:04d}-{month:02d}"
+
+
+def _safe_hourly(earnings: Any, hours: Any) -> Optional[str]:
+    """Return earnings/hours as a string, or ``None`` on bad/zero inputs."""
+    try:
+        e = float(earnings)
+        h = float(hours)
+    except (TypeError, ValueError):
+        return None
+    if h <= 0:
+        return None
+    return str(round(e / h, 4))
 
 
 def _service_auth_headers() -> dict[str, str]:

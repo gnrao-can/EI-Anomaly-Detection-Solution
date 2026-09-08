@@ -95,6 +95,18 @@ def build_claim_received_event(claim: Claim) -> dict[str, Any]:
         "claim_id": str(claim.claim_id),
         "sin_hash": claim.sin_hash,
         "employer_bn": claim.employer_bn,
+        # Detection engines consume these claim fields (via the orchestrator's
+        # engine-request builder). They are Protected-B-safe (no raw SIN/name/
+        # address) and let the downstream engines run without a second lookup:
+        #   insurable_hours/earnings + separation/claim dates -> repetitive,
+        #     history (tax_year), regional (hourly earnings, reference month);
+        #   economic_region_code + noc_code -> regional analysis.
+        "insurable_hours": str(claim.insurable_hours),
+        "insurable_earnings": str(claim.insurable_earnings),
+        "separation_date": claim.separation_date.isoformat(),
+        "claim_start_date": claim.claim_start_date.isoformat(),
+        "economic_region_code": claim.economic_region_code,
+        "noc_code": claim.noc_code,
         "received_at": claim.received_at.isoformat(),
         "status": claim.status.value,
     }
