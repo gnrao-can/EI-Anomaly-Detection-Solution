@@ -158,3 +158,84 @@ def itest_audit_log_migration_sql() -> str:
     )
     with open(migration, "r", encoding="utf-8") as handle:
         return handle.read()
+
+
+# ---------------------------------------------------------------------------
+# Test-auth seam (Option A: test JWKS + signed service JWT)
+# ---------------------------------------------------------------------------
+#
+# The internal EI-ADS services (engines, Ensemble Scorer) validate a GCKey
+# Bearer JWT against a JWKS endpoint on every request (Req 19.7). To drive those
+# endpoints over a REAL transport we serve a test JWKS over local HTTP and mint
+# RS256 tokens the shared validator trusts. See ``tests/integration/service_auth.py``.
+
+import json as _json  # noqa: E402
+import threading as _threading  # noqa: E402
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer  # noqa: E402
+
+from tests.integration.service_auth import (  # noqa: E402
+    TestServiceAuth,
+    clear_jwks_cache,
+)
+
+
+class _JWKSRequestHandler(BaseHTTPRequestHandler):
+    """Serve the session JWKS document as JSON on any GET path."""
+
+    # Set by the fixture before the server starts.
+    jwks_document: dict = {}
+
+    def do_GET(self):  # noqa: N802 - http.server API
+        body = _json.dumps(type(self).jwks_document).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args, **kwargs):  # noqa: D401 - silence test noise
+        """Suppress the default stderr request logging."""
+        return
+
+
+@pytest.fixture(scope="session")
+def itest_service_auth():
+    """Session-scoped test-auth seam: a running JWKS server + token minter.
+
+    Yields a :class:`TestServiceAuth` whose JWKS is served over real HTTP at a
+    ``127.0.0.1`` URL. The fixture points ``shared.auth`` at that URL via
+    ``GCKEY_JWKS_URL`` and clears the JWKS cache, so in-process services (ASGI
+    transport) validate minted tokens against the test keys. Out-of-process
+    services (containers/subprocesses) can be given the same
+    ``auth_server_url`` and a ``mint_token()`` value as
+    ``ORCHESTRATOR_SERVICE_TOKEN``.
+
+    The URL is exposed as ``auth.auth_server_url`` (attribute set on the yielded
+    object) so container-backed tests can forward it into the service env.
+    """
+    auth = TestServiceAuth.generate()
+
+    # Bind a threaded HTTP server on an ephemeral port serving the JWKS.
+    _JWKSRequestHandler.jwks_document = auth.jwks
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _JWKSRequestHandler)
+    host, port = server.server_address
+    thread = _threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+
+    jwks_url = f"http://{host}:{port}/.well-known/jwks.json"
+    # Expose for out-of-process consumers (container env forwarding).
+    auth.auth_server_url = jwks_url  # type: ignore[attr-defined]
+
+    previous = os.environ.get("GCKEY_JWKS_URL")
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    clear_jwks_cache()
+    try:
+        yield auth
+    finally:
+        if previous is None:
+            os.environ.pop("GCKEY_JWKS_URL", None)
+        else:
+            os.environ["GCKEY_JWKS_URL"] = previous
+        clear_jwks_cache()
+        server.shutdown()
+        server.server_close()

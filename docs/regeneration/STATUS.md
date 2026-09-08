@@ -55,7 +55,34 @@ damage was in a thin wiring layer + duplicated/retrofitted services.
   keep. GCKey Bearer is the only auth (dev-auth accretion removed). 202 unit tests pass.
 - **Internal auth in tests**: engines + scorer require GCKey Bearer (Req 19.7). Integration
   tests need a seam: a test JWKS/keypair the shared validator trusts, or a documented test
-  override. DECISION PENDING — required before the Slice 1 integration test.
+  override. RESOLVED (Option A) — test JWKS + signed service JWT; no production change.
+  See "Test-auth seam" below.
+
+## Test-auth seam (Option A — resolved)
+Internal endpoints (engines + Ensemble Scorer) gate on
+`require_role(Role.INVESTIGATOR)` → `shared.auth.validate_gckey_token`, which fetches a
+JWKS and verifies an RS256 GCKey Bearer. The engines/scorer set no
+`GCKEY_AUDIENCE`/`GCKEY_CLIENT_ID`/`GCKEY_ISSUER`, so aud/iss are not enforced; a trusted
+token needs only a valid RS256 signature, matching `kid`, live `exp`, and an INVESTIGATOR
+role claim.
+
+Chosen seam: a TEST JWKS + a signed service JWT (no production code change, faithful to
+Req 19.7 — the real `shared.auth` path runs).
+- `tests/integration/service_auth.py` — `TestServiceAuth`: ephemeral RSA keypair, JWKS
+  builder, `mint_token(roles=[...], ttl_seconds=..., audience=?, issuer=?, extra_claims=?)`.
+  Also `installed_service_auth(...)` (file:// install) and `write_jwks(path)`.
+- `tests/integration/conftest.py` — session fixture `itest_service_auth`: serves the JWKS
+  over REAL local HTTP (`127.0.0.1:<ephemeral>/.well-known/jwks.json`), sets
+  `GCKEY_JWKS_URL` + clears the shared JWKS cache, and exposes `auth.auth_server_url` so an
+  out-of-process/container service can be pointed at the same JWKS. Mint the orchestrator's
+  `ORCHESTRATOR_SERVICE_TOKEN` from `auth.mint_token()`.
+- `tests/integration/test_service_auth_seam.py` — proves it: 200 valid INVESTIGATOR,
+  401 missing, 403 wrong role, 401 expired, 401 untrusted key. Full `tests/integration`
+  = 19 passed, 6 skipped (container tests skip absent a daemon).
+
+Usage in the Slice 1 test: request the `itest_service_auth` fixture, set the engine + scorer
+env `GCKEY_JWKS_URL=auth.auth_server_url`, and set the orchestrator's
+`ORCHESTRATOR_SERVICE_TOKEN=auth.mint_token(roles=["INVESTIGATOR"])`.
 
 ## Slice plan (verified vertical slices)
 - **Slice 1 (in progress): thin end-to-end thread, no heavy ML.**
@@ -63,8 +90,10 @@ damage was in a thin wiring layer + duplicated/retrofitted services.
   Orchestrator pairs + dispatches over HTTP → Repetitive Pattern Engine → Ensemble Scorer
   (heuristic, no torch) → claim.scored. 
   - DONE: orchestrator wiring + auth headers.
-  - REMAINING: (a) decide test-auth seam; (b) write ONE integration test (testcontainers
-    Kafka + real HTTP) asserting paired events → claim.scored with a Risk_Decision.
+  - DONE: (a) test-auth seam (Option A) — see "Test-auth seam" below.
+  - REMAINING: (b) write ONE integration test (testcontainers Kafka + real HTTP) asserting
+    paired events → claim.scored with a Risk_Decision, using the seam to authorize the
+    orchestrator→engine and orchestrator→scorer HTTP calls.
 - **Slice 2**: Investigator Dashboard (React, demo look-and-feel) + portal backend
   (GCKey exchange + Bearer-forward) reading claim.scored / risk_assessments.
 - **Slice 3+**: add the other 5 engines one at a time (each with an integration test);
