@@ -6,21 +6,26 @@ The Portal BFF is the single `http://localhost:8000` origin the
 
 It:
 
-- authenticates every request via a signed **HttpOnly session cookie**
-  (`AUTH_MODE=dev` stub, or real `AUTH_MODE=gckey` OAuth 2.0 + PKCE);
+- authenticates the browser via **GCKey OAuth 2.0** (authorization-code + PKCE)
+  and issues a signed **HttpOnly session cookie**; the GCKey access token is
+  carried in that session so downstream calls can forward it as a Bearer;
 - serves the claimant status view and the investigator queue / detail from
   PostgreSQL, applying **role-based PII masking** server-side (Req 22.1, 22.2,
   22.6);
 - records investigator dispositions and publishes `outcome.feedback` to Kafka
   for `CONFIRMED_FRAUD` / `FALSE_POSITIVE` (Req 22.4);
 - streams flagged claims over **SSE** (Req 22.1); and
-- **reverse-proxies** the claim-submission and Privacy Act write paths to the
-  Claim Intake Service so the browser only ever sees one origin. The write logic
-  is *not* duplicated here.
+- forwards the claim-submission and Privacy Act write paths to the Claim Intake
+  Service — attaching the caller's **GCKey Bearer** (design GCKey flow "Forward
+  with Bearer token"; Req 19.7) — so the browser only ever sees one origin. The
+  write logic is *not* duplicated here; Claim Intake independently validates the
+  Bearer via JWKS.
 
 Every external dependency (PostgreSQL, Kafka, httpx) is guarded, so the service
 imports and runs locally with **no live DB / Kafka** — it degrades to an
 in-memory repository and a no-op feedback publisher, mirroring `claim-intake`.
+Authentication, however, requires a reachable GCKey IdP (there is no dev-auth
+stub); tests use faked token-exchange functions to exercise the callback wiring.
 
 ## Endpoints
 
@@ -32,48 +37,60 @@ in-memory repository and a no-op feedback publisher, mirroring `claim-intake`.
 | GET | `/portal/investigator/claims/{claim_id}` | REVIEWER / INVESTIGATOR / ADMINISTRATOR | Full assessment; 404 when absent |
 | PUT | `/api/v1/claims/{claim_id}/disposition` | INVESTIGATOR / ADMINISTRATOR | Persists disposition; publishes `outcome.feedback` for confirmed/false-positive |
 | GET | `/portal/events/claims` | REVIEWER / INVESTIGATOR / ADMINISTRATOR | SSE `text/event-stream` of flagged claims |
-| POST | `/api/v1/claims` | (upstream) | Reverse-proxy to Claim Intake `POST /api/v1/claims` |
-| GET | `/api/v1/privacy/access` | (upstream) | Reverse-proxy to Claim Intake |
-| DELETE | `/api/v1/privacy/delete` | (upstream) | Reverse-proxy to Claim Intake |
-| GET | `/auth/dev/login` | — | Dev-auth stub (only when `AUTH_MODE=dev`) |
-| GET | `/auth/logout` | — | Clears the session cookie |
-| GET | `/submit` | — | GCKey flow start (302 to `/authorize`) — `AUTH_MODE=gckey` |
-| GET | `/auth/gckey/callback` | — | GCKey code exchange + cookie |
+| POST | `/api/v1/claims` | CLAIMANT session | Forward multipart to Claim Intake with GCKey Bearer |
+| GET | `/api/v1/privacy/access` | CLAIMANT session | Forward to Claim Intake with GCKey Bearer |
+| DELETE | `/api/v1/privacy/delete` | CLAIMANT session | Forward to Claim Intake with GCKey Bearer |
+| GET | `/submit` | — | GCKey flow start (302 to GCKey `/authorize`) |
+| GET | `/auth/authorize` | — | SPA login landing (302 to GCKey `/authorize`) |
+| GET | `/auth/gckey/callback` | — | GCKey code exchange (browser redirect) + cookie |
+| POST | `/auth/callback` | — | GCKey code exchange (SPA PKCE) + cookie |
+| GET | `/auth/session` | session | UserSession for the SPA AuthContext; 401 when absent |
+| POST | `/auth/logout` | — | Clears the session cookie |
 | GET | `/auth/gckey/logout` | — | Clears the session cookie |
 
-## Run locally (dev auth, no DB/Kafka needed)
+## Authentication model
+
+GCKey OAuth 2.0 (authorization-code + PKCE) is the **only** auth mode:
+
+1. `GET /submit` (or `/auth/authorize`) → 302 to the GCKey `/authorize` endpoint,
+   with the server-owned PKCE verifier + CSRF `state` in a short-lived signed
+   cookie.
+2. GCKey redirects back to `/auth/gckey/callback` (browser) or the SPA posts to
+   `/auth/callback` (PKCE) with the authorization `code`.
+3. The BFF exchanges the code for tokens, validates the ID token via
+   `shared.auth.validate_gckey_token` (JWKS), and issues the signed HttpOnly
+   session cookie — which carries the GCKey **access token**.
+4. On `POST /api/v1/claims` and the Privacy Act proxies, the BFF attaches
+   `Authorization: Bearer <access token>` from the session when forwarding to
+   Claim Intake. It never forwards the browser session cookie upstream. A
+   session without an access token yields 401.
+
+## Run locally
 
 From this directory (`services/portal-backend`):
 
 ```bash
-PYTHONPATH=$(git rev-parse --show-toplevel) AUTH_MODE=dev \
+PYTHONPATH=$(git rev-parse --show-toplevel) \
   python -m uvicorn main:app --port 8000
 ```
 
 `PYTHONPATH` must point at the repo root so `shared/` imports resolve (the same
-convention every EI-ADS service uses).
-
-### Dev login URLs
-
-Open one of these in the browser (or `curl -c cookies.txt`) to mint a session
-cookie, then load the SPA at `http://localhost:3000`:
-
-- Investigator: `http://localhost:8000/auth/dev/login?role=INVESTIGATOR`
-- Reviewer (PII masked): `http://localhost:8000/auth/dev/login?role=REVIEWER`
-- Administrator: `http://localhost:8000/auth/dev/login?role=ADMINISTRATOR`
-- Claimant (own data): `http://localhost:8000/auth/dev/login?role=CLAIMANT&sin_hash=<hash>`
-- Log out: `http://localhost:8000/auth/logout`
+convention every EI-ADS service uses). A reachable GCKey IdP (or a compatible
+OIDC provider configured via the `GCKEY_*` env vars) is required to obtain a
+session.
 
 ## Configuration
 
-Environment variables (all optional in dev — sensible defaults apply):
+Environment variables (sensible local defaults apply where possible):
 
-- `AUTH_MODE` — `dev` (default) or `gckey`.
 - `SESSION_SECRET` — HMAC secret for the session cookie (override outside dev).
-- `CLAIM_INTAKE_URL` — reverse-proxy target (default `http://localhost:8001`).
+- `SESSION_COOKIE_SECURE` — set `true` to add the `Secure` flag (HTTPS deploys).
+- `CLAIM_INTAKE_URL` — downstream forward target (default `http://localhost:8001`).
 - `POSTGRES_*` — read-side database connection.
 - `KAFKA_BOOTSTRAP_SERVERS` — for the `outcome.feedback` publish.
-- `GCKEY_*` — authorize/token/JWKS/redirect/client settings for `AUTH_MODE=gckey`.
+- `GCKEY_*` — `GCKEY_AUTHORIZE_URL`, `GCKEY_TOKEN_URL`, `GCKEY_JWKS_URL`,
+  `GCKEY_CLIENT_ID`, `GCKEY_CLIENT_SECRET`, `GCKEY_REDIRECT_URI`, `GCKEY_SCOPE`,
+  `GCKEY_ISSUER`.
 - `SIN_HASH_SALT` — must match the Claim Intake Service to compare `sin_hash`.
 
 ## Tests

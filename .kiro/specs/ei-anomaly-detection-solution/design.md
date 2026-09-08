@@ -1106,6 +1106,27 @@ sequenceDiagram
 
 **Token validation:** Every API endpoint validates Bearer token via GCKey JWKS endpoint. 401 for missing/invalid token; 403 for insufficient scope (Req 19.7).
 
+### Claimant Portal Backend (BFF)
+
+The FastAPI half of the Claimant Portal is a Backend-for-Frontend (BFF): the single origin the React SPA talks to. The sequence diagram above shows only its authentication + claim-submission path; this section documents its full responsibilities so the design and the implementation tasks (26.x claimant SPA, 27.x investigator dashboard) agree.
+
+**Authentication (browser ↔ BFF):**
+- GCKey OAuth 2.0 authorization-code + PKCE. The BFF builds the `/authorize` redirect (server-owned PKCE verifier + CSRF `state` in a short-lived signed cookie), handles the callback, exchanges the code for tokens, and validates the ID token via `shared.auth.validate_gckey_token` (JWKS).
+- On success the BFF issues a signed **HttpOnly** session cookie (HMAC-SHA256; `Secure` in non-local environments). Every `/portal/*` and `/api/*` handler derives its `Principal` (role + `sin_hash`) from this cookie.
+
+**Downstream authorization (BFF ↔ services) — Bearer-forward:**
+- The BFF carries the GCKey **access token** inside the signed session and attaches it as `Authorization: Bearer <token>` when forwarding to the Claim Intake Service (`POST /api/v1/claims`, Privacy Act `/api/v1/privacy/*`). It never forwards the browser session cookie upstream. Claim Intake independently validates the Bearer via JWKS (Req 19.7). A session without a usable access token yields 401 (re-authenticate).
+- Rationale: the BFF holds no server-side session store in the reference implementation, so the access token is carried in the HttpOnly, HMAC-signed session cookie (not readable by page JS, tamper-evident). A production deployment MAY substitute a server-side session/token store without changing the browser or downstream contracts.
+
+**Investigator dashboard + claimant status read APIs (Req 22, tasks 27.x):**
+The BFF also serves the dashboard read/query surface directly (reading `claim.scored` results / `risk_assessments` from PostgreSQL), applying role-based access and PII masking server-side:
+- `GET /portal/claims/{claim_id}` — claimant own-data status (CLAIMANT `sin_hash` must match; Req 19.7).
+- `GET /portal/investigator/claims` and `GET /portal/investigator/claims/{claim_id}` — flagged queue + detail, INVESTIGATOR/ADMINISTRATOR only; PII masked for REVIEWER (Req 22.1, 22.2, 22.6).
+- `GET /portal/events/claims` — Server-Sent Events stream of flagged claims for near-real-time refresh (Req 22.1).
+- `PUT /api/v1/claims/{claim_id}/disposition` — INVESTIGATOR/ADMINISTRATOR record a disposition; on CONFIRMED_FRAUD / FALSE_POSITIVE the BFF publishes an `outcome.feedback` event to Kafka for model retraining (Req 22.3, 22.4).
+
+RBAC on these endpoints uses the same role model as `shared.auth` (ADMINISTRATOR is a superuser); the SPA additionally enforces RBAC for UI rendering (Req 22.6).
+
 ### Protected B Data Classification
 
 All claimant PII fields are classified Protected B and subject to:

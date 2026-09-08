@@ -3,20 +3,16 @@ services/portal-backend/auth.py
 ===============================
 Session-cookie authentication for the Portal BFF.
 
-The Portal BFF supports two authentication modes selected by ``AUTH_MODE``:
+The Portal BFF authenticates via GCKey OAuth 2.0 (authorization-code + PKCE).
+The BFF performs the code exchange, validates the ID token with
+:func:`shared.auth.validate_gckey_token`, maps the claims to a
+:class:`shared.auth.Role` plus ``sin_hash``, and issues a signed HttpOnly
+session cookie to the browser. The GCKey access token is carried inside that
+signed session so the BFF can forward it as an ``Authorization: Bearer`` header
+on downstream Claim Intake calls (design GCKey flow; Req 19.7).
 
-  * ``dev``   — a local development stub. ``GET /auth/dev/login`` mints a signed
-                HttpOnly session cookie encoding ``{role, sin_hash}``. No real
-                IdP is required, which lets the whole portal run locally.
-  * ``gckey`` — real GCKey OAuth 2.0 authorization-code + PKCE. The BFF performs
-                the code exchange, validates the ID token with
-                :func:`shared.auth.validate_gckey_token`, maps the claims to a
-                :class:`shared.auth.Role` plus ``sin_hash``, and sets the *same*
-                signed session cookie.
-
-Because both modes converge on the same signed cookie, every ``/portal`` and
-``/api`` handler consumes the identical :class:`Principal` and is therefore
-auth-mode-agnostic (Req 19.7, 22.6).
+Every ``/portal`` and ``/api`` handler consumes the same :class:`Principal`
+derived from the session cookie (Req 19.7, 22.6).
 
 The cookie is signed (not encrypted) with an HMAC-SHA256 keyed by
 ``SESSION_SECRET`` using only the Python standard library, so no additional
@@ -75,10 +71,17 @@ class Principal:
     sin_hash:
         The claimant's ``sin_hash`` (own-data key). ``None`` for staff roles
         (REVIEWER / INVESTIGATOR / ADMINISTRATOR) who are not tied to a SIN.
+    access_token:
+        The GCKey access token obtained during the OAuth code exchange, carried
+        in the signed session so the BFF can forward it as an
+        ``Authorization: Bearer`` header on downstream Claim Intake calls
+        (design GCKey flow "Forward with Bearer token"; Req 19.7). ``None`` for
+        read-only sessions that never call a downstream API.
     """
 
     role: Role
     sin_hash: Optional[str] = None
+    access_token: Optional[str] = None
 
     @property
     def roles(self) -> set[Role]:
@@ -198,7 +201,15 @@ def _principal_from_payload(payload: dict[str, Any]) -> Principal:
     if sin_hash is not None and not isinstance(sin_hash, str):
         raise SessionError("Invalid sin_hash in session.")
 
-    return Principal(role=role, sin_hash=sin_hash or None)
+    access_token = payload.get("access_token")
+    if access_token is not None and not isinstance(access_token, str):
+        raise SessionError("Invalid access_token in session.")
+
+    return Principal(
+        role=role,
+        sin_hash=sin_hash or None,
+        access_token=access_token or None,
+    )
 
 
 def _read_principal(request: Request) -> Optional[Principal]:

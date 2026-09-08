@@ -6,19 +6,19 @@ FastAPI application for the Portal Backend-for-Frontend (BFF).
 The BFF is the single ``http://localhost:8000`` origin the ``claimant-portal``
 SPA talks to. It:
 
-  * authenticates every request via a signed HttpOnly session cookie
-    (``AUTH_MODE=dev`` stub or real ``AUTH_MODE=gckey`` OAuth 2.0 + PKCE);
+  * authenticates the browser via GCKey OAuth 2.0 (authorization-code + PKCE)
+    and issues a signed HttpOnly session cookie; the GCKey access token is
+    carried in that session so downstream calls can forward it as a Bearer;
   * serves the claimant status view and the investigator queue / detail
     ``/portal/*`` endpoints directly from PostgreSQL, applying role-based PII
     masking server-side (Req 22.1, 22.2, 22.6);
   * records investigator dispositions and publishes ``outcome.feedback`` to
     Kafka for CONFIRMED_FRAUD / FALSE_POSITIVE (Req 22.4);
   * streams flagged claims over SSE (Req 22.1); and
-  * owns/translates the claim-submission path: it accepts the SPA's multipart
-    submission, and in dev mode persists it directly to PostgreSQL while in
-    gckey mode forwards it as JSON to the Claim Intake Service (Option A);
-  * reverse-proxies the Privacy Act write paths to the Claim Intake Service so
-    the browser only ever sees one origin.
+  * forwards the SPA's multipart claim submission to the Claim Intake Service
+    with the caller's GCKey Bearer (design GCKey flow "Forward with Bearer
+    token"), and reverse-proxies the Privacy Act write paths likewise, so the
+    browser only ever sees one origin.
 
 Every external dependency (PostgreSQL, Kafka, httpx) is guarded so the module
 imports and the unit tests run without a live backend, and the app degrades to
@@ -259,6 +259,7 @@ def _set_session_cookie(
     role: Role,
     sin_hash: Optional[str],
     preferred_language: Optional[str] = None,
+    access_token: Optional[str] = None,
 ) -> None:
     """Sign and attach the session cookie for *role*/*sin_hash*.
 
@@ -266,11 +267,20 @@ def _set_session_cookie(
     ``GET /auth/session`` can surface it to the SPA's AuthContext, which uses it
     to default the UI language (Req 20.1). Omitted when ``None`` to keep the
     payload minimal and backward-compatible with existing sessions.
+
+    ``access_token`` is the GCKey access token from the OAuth code exchange. It
+    is carried in the signed session so the BFF can forward it as an
+    ``Authorization: Bearer`` header on downstream Claim Intake calls (design
+    GCKey flow "Forward with Bearer token"; Req 19.7). The cookie is HttpOnly
+    (not readable by page JS) and HMAC-signed (tamper-evident); it is never
+    surfaced back to the SPA.
     """
     settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
     payload: dict[str, Any] = {"role": role.value, "sin_hash": sin_hash}
     if preferred_language:
         payload["preferred_language"] = preferred_language
+    if access_token:
+        payload["access_token"] = access_token
     token = sign_session(
         payload,
         settings.session_secret,
@@ -290,6 +300,23 @@ def _set_session_cookie(
 def _clear_session_cookie(response: Response) -> None:
     settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
     response.delete_cookie(key=settings.session_cookie_name, path="/")
+
+
+def _bearer_from_principal(principal: Principal) -> str:
+    """Return the ``Authorization: Bearer <token>`` value for downstream calls.
+
+    The GCKey access token is carried in the signed session (set at the OAuth
+    callback). Downstream EI-ADS APIs validate it via GCKey JWKS (Req 19.7). A
+    session without an access token cannot authorise a downstream call, so we
+    return 401 and require the browser to re-authenticate via GCKey rather than
+    silently sending an unauthenticated request.
+    """
+    if not principal.access_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session has no GCKey access token; please sign in again.",
+        )
+    return f"Bearer {principal.access_token}"
 
 
 async def _publish_outcome_feedback(claim_id: str, disposition: str) -> None:
@@ -332,9 +359,9 @@ def _hash_sin(raw_sin: str, salt: str) -> str:
     Mirrors ``services/claim-intake/hashing.py`` exactly: the SIN is normalised
     by stripping ASCII spaces and dashes, concatenated with the per-environment
     ``SIN_HASH_SALT``, then SHA-256 hex-digested. Keeping the derivation
-    identical means a claimant's dev-login ``sin_hash`` and a claim inserted from
-    their submitted SIN resolve to the same own-data key. The raw SIN is never
-    stored or logged.
+    identical means a claimant's session ``sin_hash`` (from the GCKey token) and
+    a claim inserted from their submitted SIN resolve to the same own-data key.
+    The raw SIN is never stored or logged.
     """
     if not salt:
         raise ValueError("A non-empty SIN_HASH_SALT is required.")
@@ -405,7 +432,7 @@ def _fsa(postal_code: Optional[str]) -> Optional[str]:
 
 
 # ---------------------------------------------------------------------------
-# Auth endpoints — dev-auth stub (AUTH_MODE=dev)
+# Auth endpoints — session view (SPA AuthContext) + logout
 # ---------------------------------------------------------------------------
 
 
@@ -421,51 +448,14 @@ def _session_view(principal: Principal, preferred_language: Optional[str]) -> di
     """
     role_value = principal.role.value
     # A stable, non-empty subject id: prefer the sin_hash (claimant own-data
-    # key), else a deterministic dev label derived from the role.
-    subject = principal.sin_hash or f"{role_value.lower()}-dev"
+    # key), else a role-derived label for staff sessions.
+    subject = principal.sin_hash or f"{role_value.lower()}-user"
     return {
         "subject": subject,
         "roles": [role_value],
         "preferredLanguage": preferred_language or "en",
-        "displayName": f"Dev {role_value}",
+        "displayName": role_value.title(),
     }
-
-
-@app.get("/auth/dev/login")
-async def dev_login(
-    role: str = "CLAIMANT",
-    sin_hash: Optional[str] = None,
-    lang: Optional[str] = None,
-) -> JSONResponse:
-    """Dev-auth stub: mint a signed session cookie encoding ``{role, sin_hash}``.
-
-    Only available when ``AUTH_MODE=dev``. Example URLs:
-      * ``/auth/dev/login?role=INVESTIGATOR``
-      * ``/auth/dev/login?role=CLAIMANT&sin_hash=<hash>``
-      * ``/auth/dev/login?role=CLAIMANT&sin_hash=<hash>&lang=fr``
-
-    After a successful dev-login the ``claimant-portal`` SPA sees the session via
-    ``GET /auth/session`` (which reads this same signed cookie), so its
-    AuthContext transitions to ``authenticated`` and RBAC nav/route guards work.
-    """
-    settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
-    if not settings.is_dev_auth:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Dev auth is disabled (AUTH_MODE is not 'dev').",
-        )
-    try:
-        role_enum = Role(role.upper())
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Unknown role: {role!r}.",
-        )
-    response = JSONResponse(
-        content={"role": role_enum.value, "sin_hash": sin_hash}
-    )
-    _set_session_cookie(response, role_enum, sin_hash, preferred_language=lang)
-    return response
 
 
 @app.get("/auth/session")
@@ -504,7 +494,7 @@ async def get_session(
 
 @app.get("/auth/logout")
 async def logout() -> JSONResponse:
-    """Clear the session cookie (works in both auth modes)."""
+    """Clear the session cookie (GET convenience; the SPA uses POST)."""
     response = JSONResponse(content={"status": "logged_out"})
     _clear_session_cookie(response)
     return response
@@ -527,7 +517,7 @@ async def whoami(principal: Principal = Depends(get_principal)) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
-# Auth endpoints — real GCKey OAuth 2.0 + PKCE (AUTH_MODE=gckey)
+# Auth endpoints — GCKey OAuth 2.0 authorization-code + PKCE
 # ---------------------------------------------------------------------------
 
 
@@ -535,14 +525,11 @@ def _begin_gckey_authorize() -> RedirectResponse:
     """Build the GCKey authorize redirect + short-lived PKCE state cookie.
 
     Shared by ``GET /submit`` and ``GET /auth/authorize`` so the SPA's default
-    ``VITE_GCKEY_AUTHORIZE_URL`` (``/auth/authorize``) lands somewhere sensible.
-    In dev mode it 302s to the dev-login stub; in gckey mode it 302s to the real
-    GCKey ``/authorize`` endpoint.
+    ``VITE_GCKEY_AUTHORIZE_URL`` (``/auth/authorize``) lands on the GCKey
+    ``/authorize`` endpoint. A signed, short-lived ``gckey_pkce`` cookie carries
+    the PKCE verifier + CSRF state for the callback to complete the exchange.
     """
     settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
-    if settings.is_dev_auth:
-        # In dev mode there is no IdP; point operators at the dev-login stub.
-        return RedirectResponse(url="/auth/dev/login?role=CLAIMANT", status_code=302)
 
     verifier, challenge = gckey.generate_pkce_pair()
     state = gckey.generate_state()
@@ -579,10 +566,9 @@ async def gckey_start() -> RedirectResponse:
 async def gckey_authorize() -> RedirectResponse:
     """SPA login landing (default ``VITE_GCKEY_AUTHORIZE_URL``).
 
-    Behaves like ``GET /submit``: in dev 302 to the dev-login stub, in gckey mode
-    302 to the real GCKey authorize URL. The SPA appends OAuth query params which
-    are ignored in dev and superseded by the server-built authorize URL in gckey
-    mode (the server owns the canonical PKCE state).
+    Behaves like ``GET /submit``: 302 to the real GCKey authorize URL. The SPA
+    may append OAuth query params which are superseded by the server-built
+    authorize URL (the server owns the canonical PKCE state).
     """
     return _begin_gckey_authorize()
 
@@ -593,14 +579,17 @@ async def _complete_gckey_exchange(
     pkce_cookie: Optional[str],
     *,
     code_verifier: Optional[str] = None,
-) -> tuple[Role, Optional[str]]:
-    """Exchange a GCKey authorization ``code`` for a ``(role, sin_hash)`` pair.
+) -> tuple[Role, Optional[str], Optional[str]]:
+    """Exchange a GCKey authorization ``code`` for ``(role, sin_hash, access_token)``.
 
     Shared by the GET ``/auth/gckey/callback`` (browser redirect) and the POST
     ``/auth/callback`` (SPA fetch) handlers. When ``code_verifier`` is supplied
     (POST/SPA flow, where the SPA held the verifier), it is used directly;
     otherwise the verifier + state are recovered from the signed ``gckey_pkce``
     cookie set by :func:`_begin_gckey_authorize` (browser redirect flow).
+
+    The returned ``access_token`` is the GCKey access token, persisted into the
+    session so the BFF can forward it as a Bearer to Claim Intake (Req 19.7).
     """
     settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
 
@@ -628,23 +617,23 @@ async def _complete_gckey_exchange(
         code_verifier=verifier,
     )
     id_token = tokens.get("id_token") or tokens.get("access_token") or ""
-    return gckey.principal_fields_from_id_token(id_token)
+    role, sin_hash = gckey.principal_fields_from_id_token(id_token)
+    # The Bearer forwarded downstream is the access token (falls back to the
+    # id_token when the IdP returns only that, as some test IdPs do).
+    access_token = tokens.get("access_token") or tokens.get("id_token") or ""
+    return role, sin_hash, access_token or None
 
 
 @app.get("/auth/gckey/callback")
 async def gckey_callback(request: Request, code: str = "", state: str = "") -> Response:
     """Complete the GCKey flow: exchange the code, validate the ID token, set cookie."""
-    settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
-    if settings.is_dev_auth:
-        raise HTTPException(status_code=404, detail="GCKey callback disabled in dev mode.")
-
-    role, sin_hash = await _complete_gckey_exchange(
+    role, sin_hash, access_token = await _complete_gckey_exchange(
         code, state, request.cookies.get("gckey_pkce")
     )
 
     response = RedirectResponse(url="/", status_code=302)
     response.delete_cookie("gckey_pkce", path="/")
-    _set_session_cookie(response, role, sin_hash)
+    _set_session_cookie(response, role, sin_hash, access_token=access_token)
     return response
 
 
@@ -652,16 +641,12 @@ async def gckey_callback(request: Request, code: str = "", state: str = "") -> R
 async def gckey_callback_post(request: Request, body: CallbackRequest) -> Response:
     """SPA PKCE code exchange (``services/claimant-portal/src/auth/gckey.ts``).
 
-    In dev mode this returns 404 (mirroring the GET gckey callback, since there
-    is no IdP). In gckey mode it performs the token exchange using the
-    ``code_verifier`` the SPA held, sets the same signed session cookie, and
-    returns 200 (the SPA only checks ``response.ok`` then calls ``fetchSession``).
+    Performs the token exchange using the ``code_verifier`` the SPA held,
+    validates the ID token, sets the signed session cookie (carrying the GCKey
+    access token for downstream Bearer-forward), and returns 200 (the SPA only
+    checks ``response.ok`` then calls ``fetchSession``).
     """
-    settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
-    if settings.is_dev_auth:
-        raise HTTPException(status_code=404, detail="GCKey callback disabled in dev mode.")
-
-    role, sin_hash = await _complete_gckey_exchange(
+    role, sin_hash, access_token = await _complete_gckey_exchange(
         body.code,
         state="",
         pkce_cookie=request.cookies.get("gckey_pkce"),
@@ -670,7 +655,7 @@ async def gckey_callback_post(request: Request, body: CallbackRequest) -> Respon
 
     response = JSONResponse(content={"status": "ok"})
     response.delete_cookie("gckey_pkce", path="/")
-    _set_session_cookie(response, role, sin_hash)
+    _set_session_cookie(response, role, sin_hash, access_token=access_token)
     return response
 
 
@@ -831,8 +816,16 @@ _PROXY_HOP_BY_HOP = {
 }
 
 
-async def _reverse_proxy(request: Request, target_path: str) -> Response:
-    """Forward *request* to the Claim Intake Service, preserving cookies/body."""
+async def _reverse_proxy(
+    request: Request, target_path: str, principal: Principal
+) -> Response:
+    """Forward *request* to the Claim Intake Service with the GCKey Bearer.
+
+    The caller's GCKey access token (from the signed session) is attached as the
+    ``Authorization`` header so Claim Intake can validate it via JWKS (Req 19.7).
+    Any inbound ``Authorization``/``Cookie`` headers are dropped in favour of the
+    session-derived Bearer, so the browser session cookie never leaks upstream.
+    """
     settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
     if not _HAS_HTTPX:
         raise HTTPException(status_code=502, detail="Upstream client unavailable.")
@@ -840,9 +833,11 @@ async def _reverse_proxy(request: Request, target_path: str) -> Response:
     base_url = settings.claim_intake_url.rstrip("/")
     url = f"{base_url}{target_path}"
 
+    _PROXY_DROP = _PROXY_HOP_BY_HOP | {"authorization", "cookie"}
     forward_headers = {
-        k: v for k, v in request.headers.items() if k.lower() not in _PROXY_HOP_BY_HOP
+        k: v for k, v in request.headers.items() if k.lower() not in _PROXY_DROP
     }
+    forward_headers["Authorization"] = _bearer_from_principal(principal)
     body = await request.body()
 
     # A test may inject an httpx MockTransport via app.state.proxy_transport.
@@ -889,11 +884,12 @@ async def create_claim(
     ``claim.received`` publish, and returns 202 ``{claim_id, status}`` or a
     structured 400 ``{errors:[...]}`` which the BFF passes back unchanged.
 
-    Auth propagation:
-      * ``AUTH_MODE=dev``   — set trusted ``X-Dev-Role``/``X-Dev-Sin-Hash`` headers
-        from the session so intake's dev principal authorises the CLAIMANT.
-      * ``AUTH_MODE=gckey`` — pass the caller's ``Authorization`` Bearer header
-        through untouched for intake's real GCKey/JWKS validation.
+    Auth propagation (design GCKey flow, "Forward with Bearer token"; Req 19.7):
+    the BFF attaches the caller's GCKey access token — carried in the signed
+    session from the OAuth code exchange — as the ``Authorization: Bearer``
+    header. Claim Intake independently validates that Bearer via GCKey JWKS and
+    returns 401/403 as appropriate. A session without a usable access token
+    yields 401 here (the browser must re-authenticate via GCKey).
     """
     settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
     if not _HAS_HTTPX:
@@ -907,14 +903,7 @@ async def create_claim(
     if ctype:
         forward_headers["Content-Type"] = ctype
 
-    if settings.is_dev_auth:
-        forward_headers["X-Dev-Role"] = principal.role.value
-        if principal.sin_hash:
-            forward_headers["X-Dev-Sin-Hash"] = principal.sin_hash
-    else:
-        auth = request.headers.get("authorization")
-        if auth:
-            forward_headers["Authorization"] = auth
+    forward_headers["Authorization"] = _bearer_from_principal(principal)
 
     base_url = settings.claim_intake_url.rstrip("/")
     url = f"{base_url}/api/v1/claims"
@@ -944,15 +933,29 @@ async def create_claim(
 
 
 @app.get("/api/v1/privacy/access")
-async def proxy_privacy_access(request: Request) -> Response:
-    """Reverse-proxy a Privacy Act access request to the Claim Intake Service."""
-    return await _reverse_proxy(request, "/api/v1/privacy/access")
+async def proxy_privacy_access(
+    request: Request,
+    principal: Principal = Depends(require_roles(Role.CLAIMANT)),
+) -> Response:
+    """Reverse-proxy a Privacy Act access request to the Claim Intake Service.
+
+    Requires an authenticated CLAIMANT session; forwards the GCKey Bearer so
+    intake enforces its own auth (Req 19.4, 19.7).
+    """
+    return await _reverse_proxy(request, "/api/v1/privacy/access", principal)
 
 
 @app.delete("/api/v1/privacy/delete")
-async def proxy_privacy_delete(request: Request) -> Response:
-    """Reverse-proxy a Privacy Act deletion request to the Claim Intake Service."""
-    return await _reverse_proxy(request, "/api/v1/privacy/delete")
+async def proxy_privacy_delete(
+    request: Request,
+    principal: Principal = Depends(require_roles(Role.CLAIMANT)),
+) -> Response:
+    """Reverse-proxy a Privacy Act deletion request to the Claim Intake Service.
+
+    Requires an authenticated CLAIMANT session; forwards the GCKey Bearer so
+    intake enforces its own auth (Req 19.5, 19.7).
+    """
+    return await _reverse_proxy(request, "/api/v1/privacy/delete", principal)
 
 
 # ---------------------------------------------------------------------------

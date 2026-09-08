@@ -8,8 +8,21 @@ The service lives in a hyphenated directory, so it is loaded via the shared
 ``load_service_module`` conftest helper (namespaced ``sys.modules`` keys keep the
 whole unit suite collision-free).
 
+Auth model: GCKey OAuth 2.0 is the ONLY auth mode (the dev-auth stub was
+removed). Tests establish a session two ways:
+  * directly minting the signed session cookie via ``sign_session`` (the same
+    cookie the GCKey callback issues) for the many tests that only need an
+    authenticated principal; and
+  * driving ``POST /auth/callback`` with the GCKey token-exchange functions
+    faked (``gckey.exchange_code_for_tokens`` + ``principal_fields_from_id_token``)
+    to exercise the real callback wiring — including persisting the GCKey access
+    token into the session for downstream Bearer-forward.
+
 Coverage:
-  * dev-auth: login sets a cookie; protected routes work with it and 401 without.
+  * GCKey callback: exchanges the code, sets a session cookie, and the session
+    carries the access token; ``/auth/session`` then reports authenticated.
+  * Bearer-forward: ``POST /api/v1/claims`` and the Privacy Act proxies forward
+    ``Authorization: Bearer <gckey access token>`` to Claim Intake (NOT X-Dev-*).
   * role gates: 403 for the wrong role on investigator/disposition endpoints.
   * PII masking: REVIEWER sees masked name/SIN/address; INVESTIGATOR does not.
   * claimant own-data-only enforcement (Req 19.7).
@@ -35,7 +48,6 @@ pytest.importorskip("httpx")
 from fastapi.testclient import TestClient  # noqa: E402
 
 # Force local-degrade defaults before the modules read settings.
-os.environ.setdefault("AUTH_MODE", "dev")
 os.environ.setdefault("SESSION_SECRET", "test_portal_secret")
 os.environ.setdefault("CLAIM_INTAKE_URL", "http://claim-intake.test")
 
@@ -45,14 +57,18 @@ _config = load_service_module("portal-backend", "config", siblings=_SIBLINGS)
 _auth = load_service_module("portal-backend", "auth", siblings=_SIBLINGS)
 _repository = load_service_module("portal-backend", "repository", siblings=_SIBLINGS)
 _sse = load_service_module("portal-backend", "sse", siblings=_SIBLINGS)
+_gckey = load_service_module("portal-backend", "gckey", siblings=_SIBLINGS)
 _main = load_service_module("portal-backend", "main", siblings=_SIBLINGS)
 
 app = _main.app
 FakePortalRepository = _repository.FakePortalRepository
 sign_session = _auth.sign_session
+Role = _auth.Role
 
 SESSION_SECRET = "test_portal_secret"
 COOKIE_NAME = "ei_ads_session"
+# A representative GCKey access token value the BFF forwards downstream.
+TEST_ACCESS_TOKEN = "gckey-access-token-xyz"
 
 
 # ---------------------------------------------------------------------------
@@ -82,10 +98,16 @@ def client(repo):
         yield c
 
 
-def _session_cookie(role: str, sin_hash=None) -> dict:
-    token = sign_session(
-        {"role": role, "sin_hash": sin_hash}, SESSION_SECRET, max_age=3600
-    )
+def _session_cookie(role: str, sin_hash=None, access_token=TEST_ACCESS_TOKEN) -> dict:
+    """Mint the signed session cookie the GCKey callback would issue.
+
+    Carries the GCKey ``access_token`` so downstream Bearer-forward paths have a
+    token to attach; pass ``access_token=None`` to simulate a token-less session.
+    """
+    payload = {"role": role, "sin_hash": sin_hash}
+    if access_token:
+        payload["access_token"] = access_token
+    token = sign_session(payload, SESSION_SECRET, max_age=3600)
     return {COOKIE_NAME: token}
 
 
@@ -115,17 +137,69 @@ def _seed_flagged(repo, claim_id="c-1", **kw):
     repo.add_claim(claim_id, **defaults)
 
 
+def _fake_gckey(monkeypatch, role="CLAIMANT", sin_hash=None, access_token=TEST_ACCESS_TOKEN):
+    """Fake the GCKey token exchange + ID-token validation on the loaded module.
+
+    Lets ``POST /auth/callback`` run the REAL callback wiring (code -> tokens ->
+    principal -> session cookie -> access token persisted) without a live IdP or
+    JWKS. Returns nothing; patches the ``gckey`` module the app imported.
+    """
+    async def _fake_exchange(**kwargs):
+        return {"access_token": access_token, "id_token": "fake.id.token"}
+
+    def _fake_principal_fields(id_token):
+        return (Role(role.upper()), sin_hash)
+
+    monkeypatch.setattr(_gckey, "exchange_code_for_tokens", _fake_exchange)
+    monkeypatch.setattr(_gckey, "principal_fields_from_id_token", _fake_principal_fields)
+
+
 # ---------------------------------------------------------------------------
-# Dev auth
+# GCKey auth callback + session
 # ---------------------------------------------------------------------------
 
 
-class TestDevAuth:
-    def test_login_sets_cookie(self, client):
-        resp = client.get("/auth/dev/login", params={"role": "INVESTIGATOR"})
+class TestGCKeyAuth:
+    def test_callback_exchanges_code_and_sets_session(self, client, monkeypatch):
+        _fake_gckey(monkeypatch, role="INVESTIGATOR")
+        client.cookies.clear()
+        resp = client.post(
+            "/auth/callback",
+            json={"code": "abc", "code_verifier": "v", "redirect_uri": "r"},
+        )
         assert resp.status_code == 200
         assert COOKIE_NAME in resp.cookies
-        assert resp.json()["role"] == "INVESTIGATOR"
+        # The SPA then reads the session; it must be authenticated.
+        session = client.get("/auth/session")
+        assert session.status_code == 200
+        assert session.json()["roles"] == ["INVESTIGATOR"]
+
+    def test_callback_persists_access_token_for_bearer_forward(self, client, monkeypatch):
+        # The session established by the callback must carry the GCKey access
+        # token so downstream calls can forward it as a Bearer.
+        _fake_gckey(monkeypatch, role="CLAIMANT", sin_hash="sinhash-abc",
+                    access_token="tok-from-idp")
+        client.cookies.clear()
+        client.post(
+            "/auth/callback",
+            json={"code": "abc", "code_verifier": "v", "redirect_uri": "r"},
+        )
+        # Forward a claim submission and assert the Bearer is the IdP token.
+        capture: dict = {}
+        import httpx
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capture["authorization"] = request.headers.get("authorization")
+            return httpx.Response(202, json={"claim_id": "x", "status": "RECEIVED"})
+
+        app.state.proxy_transport = httpx.MockTransport(handler)
+        resp = client.post("/api/v1/claims", data={
+            "sin": "046454286", "employer_bn": "123456789RT0001",
+            "insurable_hours": "1200", "insurable_earnings": "45000",
+            "separation_date": "2024-01-15", "separation_reason": "Shortage of work",
+        })
+        assert resp.status_code == 202
+        assert capture["authorization"] == "Bearer tok-from-idp"
 
     def test_protected_route_requires_cookie(self, client):
         # No cookie -> 401.
@@ -196,12 +270,14 @@ class TestSessionContract:
         resp = client.get("/auth/session", cookies={COOKIE_NAME: "not.a.valid.cookie"})
         assert resp.status_code == 401
 
-    def test_dev_login_then_session_is_authenticated(self, client):
+    def test_gckey_callback_then_session_is_authenticated(self, client, monkeypatch):
+        _fake_gckey(monkeypatch, role="CLAIMANT", sin_hash="abc")
         client.cookies.clear()
-        login = client.get(
-            "/auth/dev/login", params={"role": "CLAIMANT", "sin_hash": "abc"}
+        cb = client.post(
+            "/auth/callback",
+            json={"code": "c", "code_verifier": "v", "redirect_uri": "r"},
         )
-        assert login.status_code == 200
+        assert cb.status_code == 200
         # The same client carries the minted cookie forward.
         resp = client.get("/auth/session")
         assert resp.status_code == 200
@@ -210,19 +286,13 @@ class TestSessionContract:
         assert isinstance(body["subject"], str) and body["subject"]
         assert body["subject"] == "abc"
 
-    def test_dev_login_lang_flows_to_session(self, client):
+    def test_post_logout_clears_cookie(self, client, monkeypatch):
+        _fake_gckey(monkeypatch, role="CLAIMANT", sin_hash="abc")
         client.cookies.clear()
-        client.get(
-            "/auth/dev/login",
-            params={"role": "CLAIMANT", "sin_hash": "abc", "lang": "fr"},
+        client.post(
+            "/auth/callback",
+            json={"code": "c", "code_verifier": "v", "redirect_uri": "r"},
         )
-        resp = client.get("/auth/session")
-        assert resp.status_code == 200
-        assert resp.json()["preferredLanguage"] == "fr"
-
-    def test_post_logout_clears_cookie(self, client):
-        client.cookies.clear()
-        client.get("/auth/dev/login", params={"role": "CLAIMANT", "sin_hash": "abc"})
         assert client.get("/auth/session").status_code == 200
         out = client.post("/auth/logout")
         assert out.status_code == 200
@@ -231,18 +301,15 @@ class TestSessionContract:
         client.cookies.clear()
         assert client.get("/auth/session").status_code == 401
 
-    def test_post_callback_404_in_dev_mode(self, client):
-        # In dev mode there is no IdP; POST /auth/callback mirrors the GET 404.
-        resp = client.post(
-            "/auth/callback",
-            json={"code": "x", "code_verifier": "y", "redirect_uri": "z"},
-        )
-        assert resp.status_code == 404
-
-    def test_authorize_redirects_to_dev_login_in_dev_mode(self, client):
+    def test_authorize_redirects_to_gckey(self, client):
+        # GCKey is the only auth mode: /auth/authorize 302s to the GCKey
+        # authorize URL (not a dev-login stub) and sets the PKCE state cookie.
         resp = client.get("/auth/authorize", follow_redirects=False)
         assert resp.status_code == 302
-        assert "/auth/dev/login" in resp.headers["location"]
+        loc = resp.headers["location"]
+        assert "/auth/dev/login" not in loc
+        settings = _config.get_settings()
+        assert loc.startswith(settings.gckey_authorize_url)
 
 
 # ---------------------------------------------------------------------------
@@ -564,12 +631,14 @@ class TestSSE:
 class TestClaimSubmission:
     """POST /api/v1/claims — the BFF is a THIN multipart forwarder to Claim Intake.
 
-    Design-faithful (design.md): the portal forwards the claimant's multipart
-    submission to the Claim Intake Service, which owns validation + persistence.
+    Design-faithful (design.md GCKey flow): the portal forwards the claimant's
+    multipart submission to the Claim Intake Service — attaching the caller's
+    GCKey access token as ``Authorization: Bearer`` — and Claim Intake owns
+    validation + persistence and independently validates the Bearer (Req 19.7).
     These tests stand claim-intake up as an httpx MockTransport and assert the
     BFF (a) requires a CLAIMANT session, (b) forwards the multipart body to
-    CLAIM_INTAKE_URL with the dev-auth headers, and (c) returns intake's
-    response (202 {claim_id} or 400 {errors}) unchanged.
+    CLAIM_INTAKE_URL with the GCKey Bearer header (NOT X-Dev-*), and (c) returns
+    intake's response (202 {claim_id} or 400 {errors}) unchanged.
     """
 
     VALID_FIELDS = {
@@ -589,6 +658,7 @@ class TestClaimSubmission:
             capture["method"] = request.method
             capture["url"] = str(request.url)
             capture["content_type"] = request.headers.get("content-type", "")
+            capture["authorization"] = request.headers.get("authorization")
             capture["x_dev_role"] = request.headers.get("x-dev-role")
             capture["x_dev_sin_hash"] = request.headers.get("x-dev-sin-hash")
             capture["body"] = request.content
@@ -613,7 +683,7 @@ class TestClaimSubmission:
         assert capture["url"].endswith("/api/v1/claims")
         assert "form" in capture["content_type"] or "multipart" in capture["content_type"]
 
-    def test_dev_auth_headers_are_set_from_session(self, client):
+    def test_gckey_bearer_is_forwarded_from_session(self, client):
         capture: dict = {}
         self._mock_intake(capture)
         client.post(
@@ -621,9 +691,23 @@ class TestClaimSubmission:
             data=dict(self.VALID_FIELDS),
             cookies=_session_cookie("CLAIMANT", "sinhash-abc"),
         )
-        # In dev mode the BFF authorises intake via trusted dev headers.
-        assert capture["x_dev_role"] == "CLAIMANT"
-        assert capture["x_dev_sin_hash"] == "sinhash-abc"
+        # The BFF forwards the GCKey access token (from the session) as a
+        # Bearer, and does NOT fabricate X-Dev-* headers (Req 19.7).
+        assert capture["authorization"] == f"Bearer {TEST_ACCESS_TOKEN}"
+        assert capture["x_dev_role"] is None
+        assert capture["x_dev_sin_hash"] is None
+
+    def test_session_without_access_token_returns_401(self, client):
+        capture: dict = {}
+        self._mock_intake(capture)
+        # A CLAIMANT session lacking a GCKey access token cannot authorise a
+        # downstream call -> 401 (re-authenticate), not an unauthenticated call.
+        resp = client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            cookies=_session_cookie("CLAIMANT", "sinhash-abc", access_token=None),
+        )
+        assert resp.status_code == 401
 
     def test_intake_400_errors_are_passed_through(self, client):
         capture: dict = {}
@@ -689,29 +773,39 @@ class TestReverseProxy:
         def handler(request: httpx.Request) -> httpx.Response:
             capture["method"] = request.method
             capture["url"] = str(request.url)
+            capture["authorization"] = request.headers.get("authorization")
             capture["body"] = request.content
             return httpx.Response(202, json={"claim_id": "proxied-123"})
 
         app.state.proxy_transport = httpx.MockTransport(handler)
 
-    # NOTE: POST /api/v1/claims is NO LONGER reverse-proxied in dev mode.
-    # Under Option A the BFF now owns/translates the submission and, in the
-    # default AUTH_MODE=dev, persists it directly to the shared DB / repository
-    # (see TestClaimSubmission below). Only the Privacy Act paths stay proxied.
+    # The Privacy Act paths are reverse-proxied to Claim Intake with the GCKey
+    # Bearer from the session; they require an authenticated CLAIMANT.
 
-    def test_privacy_access_forwards(self, client):
+    def test_privacy_access_forwards_with_bearer(self, client):
         capture: dict = {}
         self._install_mock_transport(capture)
-        client.get("/api/v1/privacy/access")
+        client.get(
+            "/api/v1/privacy/access", cookies=_session_cookie("CLAIMANT", "sin-1")
+        )
         assert capture["method"] == "GET"
         assert "/api/v1/privacy/access" in capture["url"]
+        assert capture["authorization"] == f"Bearer {TEST_ACCESS_TOKEN}"
 
-    def test_privacy_delete_forwards(self, client):
+    def test_privacy_delete_forwards_with_bearer(self, client):
         capture: dict = {}
         self._install_mock_transport(capture)
-        client.request("DELETE", "/api/v1/privacy/delete")
+        client.request(
+            "DELETE", "/api/v1/privacy/delete", cookies=_session_cookie("CLAIMANT", "sin-1")
+        )
         assert capture["method"] == "DELETE"
         assert "/api/v1/privacy/delete" in capture["url"]
+        assert capture["authorization"] == f"Bearer {TEST_ACCESS_TOKEN}"
+
+    def test_privacy_access_requires_auth(self, client):
+        client.cookies.clear()
+        resp = client.get("/api/v1/privacy/access")
+        assert resp.status_code == 401
 
 
 # ---------------------------------------------------------------------------

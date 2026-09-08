@@ -4,10 +4,11 @@ services/portal-backend/config.py
 Centralised configuration for the Portal Backend-for-Frontend (BFF).
 
 The Portal BFF is the single :8000 origin the ``claimant-portal`` SPA talks to.
-It authenticates every request (dev-auth stub or real GCKey OAuth 2.0), serves
-the ``/portal/*`` read APIs directly from PostgreSQL, and reverse-proxies the
-``/api/v1/claims`` and ``/api/v1/privacy/*`` write paths to the Claim Intake
-Service so the browser only ever sees one origin.
+It authenticates every request via GCKey OAuth 2.0 (authorization-code + PKCE),
+serves the ``/portal/*`` read APIs directly from PostgreSQL, and reverse-proxies
+the ``/api/v1/claims`` and ``/api/v1/privacy/*`` write paths to the Claim Intake
+Service — forwarding the caller's GCKey Bearer token — so the browser only ever
+sees one origin.
 
 All runtime configuration is read from environment variables (see the repo
 ``.env.example``) using ``pydantic-settings`` when it is installed, with a plain
@@ -46,9 +47,6 @@ if _HAS_PYDANTIC_SETTINGS:
         service_name: str = "portal-backend"
         portal_backend_port: int = 8000
 
-        # ── Auth mode: "dev" (local stub) | "gckey" (real OAuth 2.0) ─
-        auth_mode: str = "dev"
-
         # ── Session cookie ──────────────────────────────────────────
         session_cookie_name: str = "ei_ads_session"
         # HMAC signing secret for the session cookie. MUST be overridden in
@@ -73,7 +71,7 @@ if _HAS_PYDANTIC_SETTINGS:
         # ── Claim Intake Service (reverse-proxy target) ─────────────
         claim_intake_url: str = "http://localhost:8001"
 
-        # ── GCKey OAuth 2.0 (auth_mode=gckey) ───────────────────────
+        # ── GCKey OAuth 2.0 ─────────────────────────────────────────
         gckey_jwks_url: str = "https://auth.id.gc.ca/.well-known/jwks.json"
         gckey_client_id: str = "ei-ads-local"
         gckey_client_secret: str = ""
@@ -98,10 +96,6 @@ if _HAS_PYDANTIC_SETTINGS:
         def is_development(self) -> bool:
             return self.app_env.lower() in {"development", "dev", "local"}
 
-        @property
-        def is_dev_auth(self) -> bool:
-            return self.auth_mode.lower() in {"dev", "local", "stub"}
-
 else:  # pragma: no cover - executed only when pydantic-settings is absent
 
     import os
@@ -121,8 +115,6 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
             self.portal_backend_port = int(
                 os.environ.get("PORTAL_BACKEND_PORT", "8000")
             )
-
-            self.auth_mode = os.environ.get("AUTH_MODE", "dev")
 
             self.session_cookie_name = os.environ.get(
                 "SESSION_COOKIE_NAME", "ei_ads_session"
@@ -184,10 +176,6 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
         @property
         def is_development(self) -> bool:
             return self.app_env.lower() in {"development", "dev", "local"}
-
-        @property
-        def is_dev_auth(self) -> bool:
-            return self.auth_mode.lower() in {"dev", "local", "stub"}
 
 
 @lru_cache

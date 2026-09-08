@@ -1,8 +1,7 @@
 """
 services/portal-backend/gckey.py
 ================================
-GCKey OAuth 2.0 authorization-code + PKCE helpers for the Portal BFF
-(``AUTH_MODE=gckey``).
+GCKey OAuth 2.0 authorization-code + PKCE helpers for the Portal BFF.
 
 The browser is redirected to the GCKey ``/authorize`` endpoint with a PKCE
 challenge and CSRF ``state``; GCKey redirects back to
@@ -10,7 +9,8 @@ challenge and CSRF ``state``; GCKey redirects back to
 for tokens at the token endpoint. The returned ID token is validated with
 :func:`shared.auth.validate_gckey_token` (reusing the JWKS validation shared by
 all services) and mapped to a :class:`shared.auth.Role` + ``sin_hash``; the BFF
-then sets the same signed session cookie used by the dev-auth path.
+then sets a signed HttpOnly session cookie carrying the GCKey access token for
+downstream Bearer-forward.
 
 ``httpx`` is guarded so this module imports even where the driver is absent. The
 GCKey path does not need to be verifiable without a live IdP, but it must be
