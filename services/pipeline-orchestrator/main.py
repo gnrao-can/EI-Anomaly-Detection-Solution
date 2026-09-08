@@ -13,11 +13,14 @@ Wires together the pieces of the orchestrator:
   * ``GET /healthz`` — reports Kafka and Redis connectivity (200 when healthy,
     503 when degraded).
 
-The dispatch callback here is a placeholder hook: parallel engine dispatch is
-task 6.2. For 6.1 it simply records that a pairing was detected so the
-correlation-and-trigger path is observable end to end.
+On each correlated pair the consumer invokes :class:`OrchestratorPipeline`,
+which runs the real chain — parallel engine dispatch (:class:`EngineDispatcher`)
+-> Ensemble Scorer (:class:`ScoringClient`) -> publish ``claim.scored`` /
+``claim.escalated`` (:class:`ResultPublisher`) — matching the verified Slice 1
+integration flow. (This replaced an earlier logging-only placeholder that paired
+events but produced no decision.)
 
-Requirements: 2.1
+Requirements: 2.1, 2.2, 2.3, 2.5, 2.6, 2.7
 """
 
 from __future__ import annotations
@@ -38,6 +41,9 @@ try:  # sibling modules imported by bare name in the service directory
         RedisPairingStore,
     )
     from consumer import OrchestratorConsumer  # type: ignore
+    from engine_dispatch import EngineDispatcher  # type: ignore
+    from scoring import ScoringClient  # type: ignore
+    from publisher import ResultPublisher, AIOKafkaProducerAdapter  # type: ignore
 except ImportError:  # pragma: no cover - package-style import
     from services.pipeline_orchestrator.config import get_settings  # type: ignore
     from services.pipeline_orchestrator.correlator import (  # type: ignore
@@ -47,21 +53,64 @@ except ImportError:  # pragma: no cover - package-style import
         RedisPairingStore,
     )
     from services.pipeline_orchestrator.consumer import OrchestratorConsumer  # type: ignore
+    from services.pipeline_orchestrator.engine_dispatch import EngineDispatcher  # type: ignore
+    from services.pipeline_orchestrator.scoring import ScoringClient  # type: ignore
+    from services.pipeline_orchestrator.publisher import (  # type: ignore
+        ResultPublisher,
+        AIOKafkaProducerAdapter,
+    )
 
 logger = logging.getLogger("pipeline-orchestrator")
 
 
-async def _default_dispatch(result: PairResult) -> None:
-    """Placeholder dispatch hook (task 6.2 replaces this with engine dispatch).
+class OrchestratorPipeline:
+    """The real correlation -> dispatch -> score -> publish chain (Req 2.1-2.7).
 
-    For 6.1 we only log that both events were correlated for the claim so the
-    correlation -> trigger path is observable.
+    Holds the three cooperating components built once at startup and drives them
+    per paired claim, exactly as the verified Slice 1 integration test wires
+    them (tests/integration/test_slice1_end_to_end.py):
+
+      * ``EngineDispatcher`` -- POSTs all six engines concurrently over HTTP
+        (endpoints + per-engine budgets from env / design defaults), collecting
+        Indicators and applying the >= 3-engine minimum (INDETERMINATE otherwise).
+      * ``ScoringClient`` -- POSTs the collected Indicators to the Ensemble
+        Scorer within the 300 ms budget (skipped on the INDETERMINATE path).
+      * ``ResultPublisher`` -- publishes ``claim.scored`` (and ``claim.escalated``
+        for INVESTIGATE) to Kafka, keyed by ``claim_id``.
+
+    This is the service-level wiring that the previous ``_default_dispatch``
+    placeholder omitted; without it the deployed orchestrator paired events but
+    never produced a decision.
     """
-    logger.info(
-        "claim %s paired; ready for parallel engine dispatch (later_ts=%s)",
-        result.claim_id,
-        result.later_timestamp.isoformat(),
-    )
+
+    def __init__(
+        self,
+        dispatcher: EngineDispatcher,
+        scoring_client: ScoringClient,
+        publisher: ResultPublisher,
+    ) -> None:
+        self._dispatcher = dispatcher
+        self._scoring = scoring_client
+        self._publisher = publisher
+
+    async def dispatch(self, pair: PairResult) -> None:
+        """Run the full chain for one paired claim (Req 2.2-2.7)."""
+        result = await self._dispatcher.dispatch(pair.claim_payload, pair.roe_payload)
+        outcome = await self._scoring.score(
+            result.indicators,
+            result.claim_id,
+            result.engines_completed,
+            result.engines_partial,
+            indeterminate=result.indeterminate,
+        )
+        await self._publisher.publish_scored(result.claim_id, outcome)
+        logger.info(
+            "claim %s scored: decision=%s (completed=%d, partial=%d)",
+            result.claim_id,
+            getattr(outcome.risk_decision, "value", outcome.risk_decision),
+            len(result.engines_completed),
+            len(result.engines_partial),
+        )
 
 
 @asynccontextmanager
@@ -78,6 +127,8 @@ async def lifespan(app: FastAPI):
     app.state.redis_cache = None
     app.state.correlator = None
     app.state.consumer = None
+    app.state.kafka_producer = None
+    app.state.pipeline = None
 
     # ── Redis pairing store ─────────────────────────────────────
     pairing_store: Any = None
@@ -101,10 +152,26 @@ async def lifespan(app: FastAPI):
     )
     app.state.correlator = correlator
 
+    # ── Real dispatch chain: engines -> scorer -> publish (Req 2.2-2.7) ──
+    # EngineDispatcher/ScoringClient default their endpoints from env
+    # (ORCHESTRATOR_ENGINE_<ENGINE>_URL, ORCHESTRATOR_ENSEMBLE_SCORER_URL) and
+    # present the ORCHESTRATOR_SERVICE_TOKEN Bearer on internal calls (Req 19.7).
+    # The Kafka producer is created here and reused for every published event.
+    kafka_producer = AIOKafkaProducerAdapter(
+        bootstrap_servers=settings.kafka_bootstrap_servers
+    )
+    app.state.kafka_producer = kafka_producer
+    pipeline = OrchestratorPipeline(
+        dispatcher=EngineDispatcher(),
+        scoring_client=ScoringClient(),
+        publisher=ResultPublisher(kafka_producer),
+    )
+    app.state.pipeline = pipeline
+
     # ── Kafka consumer ──────────────────────────────────────────
     consumer = OrchestratorConsumer(
         correlator,
-        _default_dispatch,
+        pipeline.dispatch,
         bootstrap_servers=settings.kafka_bootstrap_servers,
         topics=(settings.kafka_claim_topic, settings.kafka_roe_topic),
         group_id=settings.kafka_consumer_group,
@@ -120,6 +187,12 @@ async def lifespan(app: FastAPI):
         if app.state.consumer is not None:
             try:
                 await app.state.consumer.stop()
+            except Exception:  # noqa: BLE001
+                pass
+        producer = getattr(app.state, "kafka_producer", None)
+        if producer is not None:
+            try:
+                await producer.stop()
             except Exception:  # noqa: BLE001
                 pass
         if app.state.redis_cache is not None:
@@ -189,4 +262,4 @@ async def healthz() -> JSONResponse:
     )
 
 
-__all__ = ["app", "lifespan"]
+__all__ = ["app", "lifespan", "OrchestratorPipeline"]
