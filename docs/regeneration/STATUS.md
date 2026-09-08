@@ -60,11 +60,23 @@ scoring, engine algorithms, intake, and validation were sound. The design is coh
 damage was in a thin wiring layer + duplicated/retrofitted services.
 
 ## Genuine deviations still to resolve (from design)
-- **Claimant Portal backend**: design shows "React + FastAPI" portal doing GCKey code
-  exchange + Bearer-forward. Current `services/portal-backend` is a session retrofit carrying
-  dev-auth/session-cookie complexity; the dev-auth stub was already removed from claim-intake.
-  Portal-backend to be reworked to the strict design role (GCKey exchange + session cookie +
-  Bearer-forward) OR regenerated in the UI slice.
+- **Claimant Portal backend**: RESOLVED (6f65603). Reworked to the design role:
+  (A) real GCKey Bearer-forward — the GCKey access token is held in the signed HttpOnly
+  session and attached as `Authorization: Bearer` on downstream Claim Intake calls
+  (create_claim + Privacy Act proxies); token-less session → 401; (B) the dev-auth stub
+  (`AUTH_MODE`, `/auth/dev/login`, `X-Dev-*` fabricated headers) removed — GCKey is the only
+  auth mode, session cookie stays as the browser↔portal credential; (C) the investigator
+  dashboard read APIs (`/portal/investigator/*`, SSE, disposition, `outcome.feedback`) were
+  KEPT — they satisfy Req 22 + tasks 27.x. design.md gained a "Claimant Portal Backend (BFF)"
+  section documenting the full role (auth gateway + read APIs), reconciling the design diagram
+  (submission path only) with the tasks. Tests reworked off dev-auth onto the GCKey callback
+  path (faked token exchange), asserting a real Bearer is forwarded. Portal unit tests: 49 pass.
+- **claim-intake dev-auth removal fallout (NEW, out of scope this session)**: 5 PRE-EXISTING
+  unit failures — `test_auth.py::TestClaimIntakeAppWiring::test_post_claims_as_claimant_returns_202`
+  and the 4 `test_claim_kafka_rollback.py::TestTwoPhaseCommit` cases — fail identically on
+  baseline (verified via `git stash`), independent of the portal work. Likely the tests still
+  expect intake's removed dev-auth/trusted-header path. Needs its own grounded fix (rework the
+  intake tests onto GCKey Bearer, same pattern as portal-backend). NOT addressed here.
 - **claim-intake**: NOW multipart (design line 145) + postal_code optional (Req 1.2) — CORRECT,
   keep. GCKey Bearer is the only auth (dev-auth accretion removed). 202 unit tests pass.
 - **Internal auth in tests**: engines + scorer require GCKey Bearer (Req 19.7). Integration
@@ -139,6 +151,12 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
   daemon is up.
 - **Slice 2**: Investigator Dashboard (React, demo look-and-feel) + portal backend
   (GCKey exchange + Bearer-forward) reading claim.scored / risk_assessments.
+  - DONE (prereq): portal-backend reworked to the design role — GCKey-only auth +
+    Bearer-forward, dashboard read APIs retained (6f65603). See deviations above.
+  - REMAINING: the React investigator dashboard (demo look-and-feel) against the
+    corrected backend: flagged queue (SSE), claim detail + SHAP chart (a11y, EN/FR),
+    disposition form → outcome.feedback (Req 22.1–22.6, tasks 27.x); then an
+    integration test over real transports.
 - **Slice 3+**: add the other 5 engines one at a time (each with an integration test);
   then the 8 adapters (mock-data fixtures locally); then LLM + graph services.
 - **Heavy-ML last**: Document Forgery (LayoutLM), Fraud Ring (GNN), LLM (Llama), Ensemble
