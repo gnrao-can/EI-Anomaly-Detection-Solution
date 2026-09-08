@@ -38,6 +38,20 @@ mocked seams, which caused the prior fragility).
    - Both use `ORCHESTRATOR_SERVICE_TOKEN` (Req 19.7). Correlator/dispatch/scoring logic
      were already sound and unchanged.
    - Verified: orchestrator/dispatch/scoring/correlator tests = 33 passed, 2 skipped.
+3. (a1b5c63) Test-auth seam (Option A) — see "Test-auth seam" below.
+4. (dd37e97) **Audit-log immutability fix (Req 2.7, 19.3).** Found while grounding Slice 1
+   against a real Postgres: migration 004's INSERT-only RLS policy did NOT make `audit_log`
+   immutable — an UPDATE/DELETE silently reported `UPDATE 0` / `DELETE 0` (tamper tolerance,
+   not denial). Verified against postgres:16-alpine. Fix: RLS enabled + INSERT/SELECT plus
+   UPDATE/DELETE *visibility* policies (`USING (true)`) so rows are visible to a mutation
+   attempt, + a `BEFORE UPDATE OR DELETE` trigger (`audit_log_reject_mutation`) raising
+   `insufficient_privilege` (42501). Fires even for a role holding UPDATE/DELETE grants;
+   INSERT (append) still works. Corrected the design.md "Audit Log Immutability" note (it
+   claimed INSERT-only was sufficient) and the file's own SECURITY NOTE/COMMENT. The static
+   test that encoded the wrong premise was rewritten (`test_audit_log_migration_enforces_
+   immutability`) to assert the trigger contract; the container runtime test now passes.
+5. (cbfd9be) **Slice 1 integration test — honest INDETERMINATE assertion (Req 2.5).** See
+   "Slice 1" below. Removed an earlier six-from-one wiring hack.
 
 ## Key finding (scope correction)
 The prior "systemic integration failure" was over-stated. The real pipeline-core defect
@@ -77,23 +91,52 @@ Req 19.7 — the real `shared.auth` path runs).
   out-of-process/container service can be pointed at the same JWKS. Mint the orchestrator's
   `ORCHESTRATOR_SERVICE_TOKEN` from `auth.mint_token()`.
 - `tests/integration/test_service_auth_seam.py` — proves it: 200 valid INVESTIGATOR,
-  401 missing, 403 wrong role, 401 expired, 401 untrusted key. Full `tests/integration`
-  = 19 passed, 6 skipped (container tests skip absent a daemon).
+  401 missing, 403 wrong role, 401 expired, 401 untrusted key. (Runs in-process, no daemon.)
 
-Usage in the Slice 1 test: request the `itest_service_auth` fixture, set the engine + scorer
-env `GCKEY_JWKS_URL=auth.auth_server_url`, and set the orchestrator's
-`ORCHESTRATOR_SERVICE_TOKEN=auth.mint_token(roles=["INVESTIGATOR"])`.
+Usage in integration tests: request the `itest_service_auth` fixture, set the engine (and
+scorer, when in scope) env `GCKEY_JWKS_URL=auth.auth_server_url`, and set the orchestrator's
+`ORCHESTRATOR_SERVICE_TOKEN=auth.mint_token(roles=["INVESTIGATOR"])`. Loopback services are
+run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn on a real
+127.0.0.1 ephemeral port).
 
 ## Slice plan (verified vertical slices)
 - **Slice 1 (in progress): thin end-to-end thread, no heavy ML.**
   Intake (multipart+GCKey) → claim.received (Kafka) → ROE Adapter → roe.received →
-  Orchestrator pairs + dispatches over HTTP → Repetitive Pattern Engine → Ensemble Scorer
-  (heuristic, no torch) → claim.scored. 
+  Orchestrator pairs + dispatches over HTTP → engines → Ensemble Scorer → claim.scored.
   - DONE: orchestrator wiring + auth headers.
   - DONE: (a) test-auth seam (Option A) — see "Test-auth seam" below.
-  - REMAINING: (b) write ONE integration test (testcontainers Kafka + real HTTP) asserting
-    paired events → claim.scored with a Risk_Decision, using the seam to authorize the
-    orchestrator→engine and orchestrator→scorer HTTP calls.
+  - DONE: (b) ONE integration test over REAL transports (testcontainers Kafka + real HTTP
+    + real GCKey Bearer/JWKS). `tests/integration/test_slice1_end_to_end.py`.
+    **It asserts the HONEST current behaviour, not a forced happy path.** Only the
+    Repetitive Pattern Engine exists as a service today, so the requirement-faithful
+    outcome is the <3-engine degradation: 1 engine completes < MIN_ENGINES_REQUIRED (3) →
+    **INDETERMINATE**, payment halted, scorer NOT called (proven via a scorer spy asserting
+    0 calls), `claim.scored` published with `risk_decision=INDETERMINATE`, no
+    `claim.escalated` (Req 2.1/2.3/2.5). The five unimplemented engines are pointed at a
+    CLOSED loopback port so their calls fail (PARTIAL_RESULT) exactly as a down engine would.
+  - **REMOVED anti-pattern**: an earlier draft pointed all six engine URLs at the one engine
+    to force ≥3 completions and a determinate score. That violated Req 2.3/2.5 and the
+    regeneration anti-fragility rule (do not reshape wiring to force green). Do not reintroduce.
+  - **Evolution**: as engines are added (Slice 3+), this test graduates to assert the
+    determinate scored path (AUTO_APPROVE / FLAG_FOR_REVIEW / INVESTIGATE) once ≥3 engines
+    genuinely complete. The determinate scorer/publish path is already unit-covered in
+    `tests/integration/test_orchestrator_flow.py` (in-process fakes).
+
+### How to run the container-backed integration tests (macOS + Podman)
+- Venv: `.venv-itest` = `.venv-core` subset + `testcontainers[kafka]==4.9.0` (gitignored).
+  Rebuild: `python -m venv .venv-itest && .venv-itest/bin/pip install -r
+  scripts/dependencies/requirements-core.txt -r scripts/dependencies/requirements-core-test.txt
+  "testcontainers[kafka]==4.9.0"`.
+- Daemon: `podman machine start` (a Docker-compatible daemon must be reachable).
+- Env: `scripts/itest-env.sh` resolves the live Podman socket and exports `DOCKER_HOST`,
+  `TESTCONTAINERS_RYUK_DISABLED=true`, `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`. Ryuk is
+  disabled because it is unreliable under Podman; testcontainers' own context managers clean up.
+- Run: `scripts/itest-env.sh .venv-itest/bin/python -m pytest tests/integration -q`
+  (last verified: **26 passed** with the runtime up; the suite skips cleanly without a daemon).
+- Server-guard: the agent cannot launch the daemon/servers; `podman machine start` and any
+  live service bring-up must be run in a human terminal. testcontainers containers are
+  started/stopped WITHIN the pytest process, so the agent can drive the tests once the
+  daemon is up.
 - **Slice 2**: Investigator Dashboard (React, demo look-and-feel) + portal backend
   (GCKey exchange + Bearer-forward) reading claim.scored / risk_assessments.
 - **Slice 3+**: add the other 5 engines one at a time (each with an integration test);
