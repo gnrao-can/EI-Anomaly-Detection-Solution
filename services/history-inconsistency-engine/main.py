@@ -129,6 +129,7 @@ async def lifespan(app: FastAPI):
         app.state.cra_client = CRAAdapterClient(
             settings.cra_adapter_url,
             timeout_seconds=settings.cra_timeout_seconds,
+            bearer_token=settings.service_token or None,
         )
 
     # The LLM narrative-contradiction checker and Kafka Indicator publisher are
@@ -175,7 +176,9 @@ def _get_client(app_: FastAPI) -> CRAAdapterClient:
     if client is None:
         settings = getattr(app_.state, "settings", None) or get_settings()
         client = CRAAdapterClient(
-            settings.cra_adapter_url, timeout_seconds=settings.cra_timeout_seconds
+            settings.cra_adapter_url,
+            timeout_seconds=settings.cra_timeout_seconds,
+            bearer_token=settings.service_token or None,
         )
         app_.state.cra_client = client
     return client

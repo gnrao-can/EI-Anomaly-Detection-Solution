@@ -156,6 +156,7 @@ def _build_statscan_client(settings: Any) -> StatsCanadaClient:
     return StatsCanadaClient(
         base_url=settings.statscan_adapter_url,
         timeout=settings.adapter_timeout_seconds,
+        bearer_token=getattr(settings, "service_token", "") or None,
     )
 
 
@@ -163,6 +164,7 @@ def _build_job_bank_client(settings: Any) -> JobBankClient:
     return JobBankClient(
         base_url=settings.job_bank_adapter_url,
         timeout=settings.adapter_timeout_seconds,
+        bearer_token=getattr(settings, "service_token", "") or None,
     )
 
 

@@ -101,10 +101,11 @@ class CRAAdapterClient:
         *,
         timeout_seconds: float = 5.0,
         transport: Optional[Transport] = None,
+        bearer_token: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
-        self._transport = transport or _build_default_transport()
+        self._transport = transport or _build_default_transport(bearer_token)
 
     async def fetch_t4(
         self, sin_hash: str, tax_year: int, employer_bn: str
@@ -256,14 +257,23 @@ def _to_decimal_or_none(value: Any) -> Optional[Decimal]:
         return None
 
 
-def _build_default_transport() -> Transport:
+def _build_default_transport(bearer_token: Optional[str] = None) -> Transport:
     """Build the default ``httpx.AsyncClient``-backed async transport.
 
     The returned coroutine issues a GET with the given per-request timeout and
     returns the parsed JSON body. Any timeout / connection / HTTP-status error
     is raised as :class:`CRAAdapterUnavailable` so the client maps it to an
     UNRESOLVED result.
+
+    When ``bearer_token`` is set, an ``Authorization: Bearer <token>`` header is
+    presented on every request. The CRA Adapter validates a GCKey Bearer on
+    every endpoint (Req 19.7 / design "Token validation"), so the engine
+    authenticates with its own service credential; absent a token (unit tests)
+    no header is sent.
     """
+    headers = (
+        {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
+    )
 
     async def _transport(url: str, timeout_seconds: float) -> dict[str, Any]:
         try:
@@ -273,7 +283,7 @@ def _build_default_transport() -> Transport:
 
         try:
             async with httpx.AsyncClient(timeout=timeout_seconds) as http:
-                response = await http.get(url)
+                response = await http.get(url, headers=headers)
                 response.raise_for_status()
                 return response.json()
         except Exception as exc:  # noqa: BLE001 - map all failures to unavailable

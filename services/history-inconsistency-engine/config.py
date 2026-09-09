@@ -53,6 +53,12 @@ if _HAS_PYDANTIC_SETTINGS:
         cra_adapter_url: str = "http://cra-adapter:8011"
         # Total timeout (seconds) for the CRA T4 lookup. Design mandates 5 s.
         cra_timeout_seconds: float = 5.0
+        # Service Bearer token presented on the internal CRA Adapter call. Every
+        # EI-ADS endpoint validates a GCKey Bearer (Req 19.7 / design "Token
+        # validation"), so the engine authenticates to the adapter with its own
+        # service credential — mirroring the orchestrator's ORCHESTRATOR_SERVICE_
+        # TOKEN pattern. Empty in unit tests (no header sent).
+        service_token: str = ""
 
         # ── Earnings discrepancy detection ──────────────────────────
         # Absolute ROE-vs-T4 difference (CAD) above which a CRITICAL Indicator is
@@ -104,6 +110,7 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
             self.cra_timeout_seconds = float(
                 os.environ.get("CRA_TIMEOUT_SECONDS", "5.0")
             )
+            self.service_token = os.environ.get("SERVICE_TOKEN", "")
 
             self.discrepancy_threshold_cad = os.environ.get(
                 "DISCREPANCY_THRESHOLD_CAD", "2000"

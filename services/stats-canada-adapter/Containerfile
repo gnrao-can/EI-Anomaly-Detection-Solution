@@ -1,0 +1,56 @@
+# ============================================================
+# stats-canada-adapter — Statistics Canada LFS Data Adapter
+# Base: registry.access.redhat.com/ubi9/python-311
+# OpenShift-compatible, rootless (USER 1001)
+# ============================================================
+
+# ── Stage 1: Builder ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:latest AS builder
+
+# Build RUN steps do not activate the image venv; point poetry at it so
+# packages install into /opt/app-root (where the base python/pip look).
+ENV VIRTUAL_ENV=/opt/app-root
+
+WORKDIR /build
+
+# Install build tools
+RUN pip install --no-cache-dir --upgrade pip==24.3.1 poetry==1.8.5
+
+# Copy dependency manifests first for layer caching
+COPY pyproject.toml ./
+COPY shared/ ./shared/
+
+# Export requirements and install into a prefix
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --without dev
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:latest AS runtime
+
+LABEL org.opencontainers.image.title="ei-ads-stats-canada-adapter" \
+      org.opencontainers.image.description="EI-ADS Statistics Canada LFS Data Adapter (mock-data fixtures in dev, Redis cache, audit logging)" \
+      org.opencontainers.image.vendor="ESDC EI-ADS Team"
+
+WORKDIR /app
+
+# Copy installed packages from builder
+# The ubi9/python-311 base installs into the /opt/app-root venv; copy the
+# whole venv (packages + console scripts) rather than the /usr/* paths.
+COPY --from=builder /opt/app-root /opt/app-root
+
+# Copy shared package and service source
+COPY --from=builder /build/shared ./shared
+COPY services/stats-canada-adapter/ ./
+
+# NOTE: mock-data/ is intentionally excluded from the build context
+# (.containerignore) — production images call the live LFS API. In the dev
+# compose stack the fixtures are bind-mounted at /app/mock-data/stats-canada
+# and selected via STATSCAN_USE_MOCK=true + STATSCAN_MOCK_DIR.
+
+# Drop to non-root (OpenShift default UID)
+USER 1001
+
+EXPOSE 8017
+
+ENTRYPOINT ["uvicorn"]
+CMD ["main:app", "--host", "0.0.0.0", "--port", "8017", "--workers", "2"]

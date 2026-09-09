@@ -1,0 +1,56 @@
+# ============================================================
+# job-bank-adapter — Job Bank Canada Data Adapter
+# Base: registry.access.redhat.com/ubi9/python-311
+# OpenShift-compatible, rootless (USER 1001)
+# ============================================================
+
+# ── Stage 1: Builder ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:latest AS builder
+
+# Build RUN steps do not activate the image venv; point poetry at it so
+# packages install into /opt/app-root (where the base python/pip look).
+ENV VIRTUAL_ENV=/opt/app-root
+
+WORKDIR /build
+
+# Install build tools
+RUN pip install --no-cache-dir --upgrade pip==24.3.1 poetry==1.8.5
+
+# Copy dependency manifests first for layer caching
+COPY pyproject.toml ./
+COPY shared/ ./shared/
+
+# Export requirements and install into a prefix
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --without dev
+
+# ── Stage 2: Runtime ─────────────────────────────────────────
+FROM registry.access.redhat.com/ubi9/python-311:latest AS runtime
+
+LABEL org.opencontainers.image.title="ei-ads-job-bank-adapter" \
+      org.opencontainers.image.description="EI-ADS Job Bank Canada Data Adapter (open-data snapshot in dev, Redis cache, audit logging)" \
+      org.opencontainers.image.vendor="ESDC EI-ADS Team"
+
+WORKDIR /app
+
+# Copy installed packages from builder
+# The ubi9/python-311 base installs into the /opt/app-root venv; copy the
+# whole venv (packages + console scripts) rather than the /usr/* paths.
+COPY --from=builder /opt/app-root /opt/app-root
+
+# Copy shared package and service source
+COPY --from=builder /build/shared ./shared
+COPY services/job-bank-adapter/ ./
+
+# NOTE: mock-data/ is intentionally excluded from the build context
+# (.containerignore) — production images call the live Job Bank API. In the dev
+# compose stack the open-data snapshot is bind-mounted at /app/mock-data/job-bank
+# and selected via JOB_BANK_SNAPSHOT_DIR (dev/test always serve from snapshot).
+
+# Drop to non-root (OpenShift default UID)
+USER 1001
+
+EXPOSE 8016
+
+ENTRYPOINT ["uvicorn"]
+CMD ["main:app", "--host", "0.0.0.0", "--port", "8016", "--workers", "2"]

@@ -68,6 +68,12 @@ if _HAS_PYDANTIC_SETTINGS:
         job_bank_adapter_url: str = _DEFAULT_JOB_BANK_URL
         #: Total per-adapter request timeout, seconds (design: 5 s).
         adapter_timeout_seconds: float = 5.0
+        #: Service Bearer token presented on the internal Stats Canada / Job Bank
+        #: Adapter calls. Every EI-ADS endpoint validates a GCKey Bearer (Req 19.7
+        #: / design "Token validation"), so the engine authenticates to the
+        #: adapters with its own service credential — mirroring the orchestrator's
+        #: ORCHESTRATOR_SERVICE_TOKEN pattern. Empty in unit tests (no header).
+        service_token: str = ""
 
         # ── Detection thresholds ────────────────────────────────────
         #: Deviation (regional - national) strictly below this (pp) => MEDIUM.
@@ -116,6 +122,7 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
             self.adapter_timeout_seconds = float(
                 os.environ.get("ADAPTER_TIMEOUT_SECONDS", "5.0")
             )
+            self.service_token = os.environ.get("SERVICE_TOKEN", "")
 
             self.rate_deviation_threshold_pp = Decimal(
                 os.environ.get(

@@ -98,14 +98,29 @@ def _to_decimal(value: Any) -> Decimal:
         raise ValueError(f"cannot parse Decimal from {value!r}") from exc
 
 
-async def _http_get(client: Any, url: str, timeout: float) -> Any:
-    """Perform an async GET using an injected client or a fresh httpx client."""
+async def _http_get(
+    client: Any,
+    url: str,
+    timeout: float,
+    headers: Optional[dict[str, str]] = None,
+) -> Any:
+    """Perform an async GET using an injected client or a fresh httpx client.
+
+    When ``headers`` is provided (e.g. an ``Authorization: Bearer`` service
+    token, Req 19.7) it is attached to the request. Injected test clients whose
+    ``get`` does not accept a ``headers`` kwarg are supported via a fallback
+    call so unit-test fakes remain unchanged.
+    """
     if client is not None:
-        return await client.get(url)
+        try:
+            return await client.get(url, headers=headers)
+        except TypeError:
+            # Injected fake does not accept a headers kwarg.
+            return await client.get(url)
     if not _HAS_HTTPX:  # pragma: no cover - exercised only without httpx
         raise RuntimeError("httpx is required for live fetch but is absent")
     async with httpx.AsyncClient(timeout=httpx.Timeout(timeout)) as http:  # pragma: no cover - real network path
-        return await http.get(url)
+        return await http.get(url, headers=headers)
 
 
 # ---------------------------------------------------------------------------
@@ -122,10 +137,14 @@ class StatsCanadaClient:
         base_url: str,
         timeout: float = 5.0,
         client: Any | None = None,
+        bearer_token: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._client = client
+        self._headers = (
+            {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
+        )
 
     async def get_rates(self, region_code: str, year_month: str) -> RegionalRates:
         """Return the regional and national unemployment rates for a month.
@@ -142,7 +161,9 @@ class StatsCanadaClient:
         """
         url = f"{self._base_url}/statscan/lfs/{region_code}/{year_month}"
         try:
-            response = await _http_get(self._client, url, self._timeout)
+            response = await _http_get(
+                self._client, url, self._timeout, self._headers
+            )
         except Exception as exc:  # noqa: BLE001 - normalise transport failures
             raise StatsCanadaUnavailableError(
                 f"Stats Canada request failed: {type(exc).__name__}"
@@ -200,10 +221,14 @@ class JobBankClient:
         base_url: str,
         timeout: float = 5.0,
         client: Any | None = None,
+        bearer_token: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout = timeout
         self._client = client
+        self._headers = (
+            {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
+        )
 
     async def get_postings(
         self, noc_code: str, region_code: str, year_month: str
@@ -219,7 +244,9 @@ class JobBankClient:
             f"{noc_code}/{region_code}/{year_month}"
         )
         try:
-            response = await _http_get(self._client, url, self._timeout)
+            response = await _http_get(
+                self._client, url, self._timeout, self._headers
+            )
         except Exception as exc:  # noqa: BLE001
             raise JobBankUnavailableError(
                 f"Job Bank request failed: {type(exc).__name__}"
