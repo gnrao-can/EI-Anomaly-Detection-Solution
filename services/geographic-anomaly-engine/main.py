@@ -71,6 +71,7 @@ try:  # sibling modules imported by bare name in the service directory
     )
     from kafka_producer import IndicatorPublishError  # type: ignore
     from mvr_client import MVRAdapterClient  # type: ignore
+    from province import resolve_province  # type: ignore
     from transport import (  # type: ignore
         PriorEmployer,
         exceeds_distance_threshold,
@@ -92,6 +93,7 @@ except ImportError:  # pragma: no cover - when imported as a package
     )
     from .kafka_producer import IndicatorPublishError  # type: ignore
     from .mvr_client import MVRAdapterClient  # type: ignore
+    from .province import resolve_province  # type: ignore
     from .transport import (  # type: ignore
         PriorEmployer,
         exceeds_distance_threshold,
@@ -311,6 +313,7 @@ async def _run_distance_dependent_checks(
     distance_km: float,
     mvr_client: Any,
     deadline: float,
+    province: str,
 ) -> list[Indicator]:
     """Run the MVR / transit / economic / prior-employer checks (distance > 100 km).
 
@@ -347,9 +350,7 @@ async def _run_distance_dependent_checks(
     # ── MVR: no registered vehicle -> HIGH (Req 4.3) ──
     if time.monotonic() < deadline and mvr_client is not None and req.sin_hash:
         try:
-            mvr_result = await mvr_client.get_ownership(
-                req.sin_hash, req.residential_province
-            )
+            mvr_result = await mvr_client.get_ownership(req.sin_hash, province)
         except Exception:  # noqa: BLE001 - degrade to UNKNOWN, no Indicator
             mvr_result = None
         # Only a confirmed NO-vehicle disposition raises the Indicator; UNKNOWN
@@ -360,7 +361,7 @@ async def _run_distance_dependent_checks(
                     no_vehicle_indicator(
                         req.claim_id,
                         distance_km=distance_km,
-                        province=req.residential_province,
+                        province=province,
                     )
                 )
             )
@@ -399,15 +400,13 @@ async def _run_distance_dependent_checks(
 
 
 async def _run_cbsa_check(
-    req: AnalyzeRequest, *, cbsa_client: Any, deadline: float
+    req: AnalyzeRequest, *, cbsa_client: Any, deadline: float, province: str
 ) -> list[Indicator]:
     """Query CBSA for cross-border absences; >= 10 consecutive days -> HIGH (Req 4.9)."""
     if cbsa_client is None or not req.sin_hash or time.monotonic() >= deadline:
         return []
     try:
-        result = await cbsa_client.get_absences(
-            req.sin_hash, req.residential_province
-        )
+        result = await cbsa_client.get_absences(req.sin_hash, province)
     except Exception:  # noqa: BLE001 - CBSA failure degrades silently
         return []
     if result is not None and result.has_long_absence:
@@ -505,15 +504,27 @@ async def analyze(
         work_coord.longitude,
     )
 
+    # ── Resolve the province that keys the MVR/CBSA lookups (Req 15.1) ──
+    # Prefer an explicit residential_province; otherwise derive it from the
+    # residential FSA per the Canada Post convention (the event carries only the
+    # FSA). An unmappable FSA yields "" and the adapters treat that as unknown.
+    province = resolve_province(req.residential_province, req.residential_postal_code)
+
     # ── Distance-dependent checks + CBSA absence check (task 12.2) ──
     indicators: list[Indicator] = []
     indicators.extend(
         await _run_distance_dependent_checks(
-            req, distance_km=distance_km, mvr_client=mvr_client, deadline=deadline
+            req,
+            distance_km=distance_km,
+            mvr_client=mvr_client,
+            deadline=deadline,
+            province=province,
         )
     )
     indicators.extend(
-        await _run_cbsa_check(req, cbsa_client=cbsa_client, deadline=deadline)
+        await _run_cbsa_check(
+            req, cbsa_client=cbsa_client, deadline=deadline, province=province
+        )
     )
 
     budget_exceeded = time.monotonic() > deadline

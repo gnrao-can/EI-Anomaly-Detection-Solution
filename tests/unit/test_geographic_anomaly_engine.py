@@ -46,6 +46,7 @@ from tests.conftest import load_service_module
 _SIBLINGS = [
     "config",
     "geo",
+    "province",
     "client",
     "transport",
     "mvr_client",
@@ -363,3 +364,125 @@ class TestEngineAdapterAuth:
         client = self.CBSAAdapterClient("http://cbsa")
         await client.get_absences("sinhash", "ON")
         assert seen["authorization"] is None
+
+
+# ===========================================================================
+# Province derivation from the residential FSA (Req 15.1)
+#
+# The event carries only the residential FSA (Protected B minimisation), not a
+# province. The engine derives the province from the FSA's first letter (Canada
+# Post convention) to key its MVR/CBSA lookups.
+# ===========================================================================
+
+
+_province = load_service_module(
+    "geographic-anomaly-engine", "province", siblings=_SIBLINGS
+)
+province_from_fsa = _province.province_from_fsa
+resolve_province = _province.resolve_province
+
+
+class TestProvinceFromFSA:
+    def test_representative_first_letters(self):
+        # One representative FSA per province/territory mapping.
+        cases = {
+            "A1A": "NL",
+            "B2B": "NS",
+            "C1C": "PE",
+            "E1E": "NB",
+            "G1G": "QC",
+            "H2H": "QC",
+            "J3J": "QC",
+            "K1A": "ON",
+            "L4L": "ON",
+            "M5M": "ON",
+            "N6N": "ON",
+            "P7P": "ON",
+            "R3R": "MB",
+            "S4S": "SK",
+            "T5T": "AB",
+            "V6V": "BC",
+            "X0X": "NT",
+            "Y1Y": "YT",
+        }
+        for fsa, expected in cases.items():
+            assert province_from_fsa(fsa) == expected, fsa
+
+    def test_case_and_whitespace_insensitive(self):
+        assert province_from_fsa("  k1a 0a6 ") == "ON"
+        assert province_from_fsa("v6v") == "BC"
+
+    def test_unused_first_letters_return_empty(self):
+        # D, F, I, O, Q, U, W, Z are never the first char of a Canadian FSA.
+        for letter in ("D", "F", "I", "O", "Q", "U", "W", "Z"):
+            assert province_from_fsa(f"{letter}1A") == ""
+
+    def test_empty_or_non_letter_returns_empty(self):
+        assert province_from_fsa("") == ""
+        assert province_from_fsa(None) == ""
+        assert province_from_fsa("123") == ""
+
+    def test_resolve_prefers_explicit_province(self):
+        # An explicit province always wins over FSA derivation.
+        assert resolve_province("bc", "K1A0A6") == "BC"
+        # Absent explicit -> derive from FSA.
+        assert resolve_province("", "K1A0A6") == "ON"
+        assert resolve_province(None, "V6V1A1") == "BC"
+        # Neither -> empty.
+        assert resolve_province("", "") == ""
+
+
+@pytest.mark.skipif(not _HAS_FASTAPI, reason="fastapi not importable")
+class TestDerivedProvinceReachesMVR:
+    """The FSA-derived province keys the MVR lookup and drives the HIGH
+    no-vehicle Indicator (Req 4.3 / 15.1)."""
+
+    def _client(self, geonames, mvr) -> "TestClient":
+        _main.app.state.settings = _main.get_settings()
+        _main.app.state.geonames = geonames
+        _main.app.state.mvr = mvr
+        _main.app.state.cbsa = None
+        _main.app.state.producer = None
+        return TestClient(_main.app)
+
+    def test_derived_province_used_for_mvr_and_high_indicator(self):
+        FakeMVRClient = _main_fake_mvr()
+
+        # Ontario FSA (K...) -> derived province "ON". Residence far (> 100 km)
+        # from the work location so distance-dependent checks run.
+        geonames = FakeGeoNamesClient()
+        geonames.add("K1A0A6", 45.4215, -75.6972)  # Ottawa (residence)
+        geonames.add("M5H2N2", 43.6489, -79.3817)  # Toronto (work) ~350 km
+
+        mvr = FakeMVRClient()
+        sin_hash = "hash-no-vehicle"
+        mvr.set_none(sin_hash)  # adapter confirms NO registered vehicle
+
+        client = self._client(geonames, mvr)
+        resp = client.post(
+            "/engine/analyze",
+            json={
+                "residential_postal_code": "K1A0A6",
+                "employer_work_location": "M5H2N2",
+                "sin_hash": sin_hash,
+                # NOTE: no residential_province supplied -> derived from FSA.
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "OK"
+        assert body["distance_km"] > 100.0
+        # The MVR lookup was keyed with the DERIVED province "ON".
+        assert mvr.calls, "MVR client was not called"
+        assert mvr.calls[-1] == (sin_hash, "ON")
+        # A HIGH no-vehicle Indicator was produced (Req 4.3).
+        highs = [i for i in body["indicators"] if i["severity"] == Severity.HIGH.value]
+        assert highs, f"expected a HIGH indicator, got {body['indicators']}"
+
+
+def _main_fake_mvr():
+    """Return the FakeMVRClient from the engine's namespaced mvr_client module."""
+    mvr_mod = load_service_module(
+        "geographic-anomaly-engine", "mvr_client", siblings=_SIBLINGS
+    )
+    return mvr_mod.FakeMVRClient

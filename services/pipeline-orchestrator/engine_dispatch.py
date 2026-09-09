@@ -255,7 +255,9 @@ def _build_engine_request(
     Field sourcing (design-faithful):
       * Most fields come from the enriched ``claim.received`` payload
         (employer_bn, insurable_hours/earnings, separation/claim dates,
-        economic_region_code, noc_code), falling back to the ROE payload.
+        economic_region_code, noc_code, residential_postal_code,
+        employer_work_location), falling back to the ROE payload. The last two
+        are REQUIRED by the Geographic Anomaly Engine (Req 4.1).
       * ``roe_earnings`` (History Inconsistency, Req 6.4) is the EMPLOYER-declared
         ROE earnings, sourced specifically from the ``roe.received`` payload's
         ``insurable_earnings`` (the ROE Adapter publishes the canonical Claim),
@@ -287,6 +289,14 @@ def _build_engine_request(
         "noc_code",
         "separation_date",
         "claim_start_date",
+        # Geographic Anomaly Engine (Req 4.1): both are REQUIRED by its
+        # AnalyzeRequest (a 422 otherwise). Both are carried on claim.received
+        # (shared.models.Claim): residential_postal_code is the FSA, and
+        # employer_work_location is the declared work location. The engine
+        # resolves each to coordinates via the GeoNames Adapter and derives the
+        # residential province from the FSA (Req 15.1) for its MVR/CBSA lookups.
+        "residential_postal_code",
+        "employer_work_location",
     ):
         value = merged.get(field_name)
         if value is not None:
