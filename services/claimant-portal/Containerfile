@@ -11,16 +11,22 @@
 # ── Stage 1: Builder (Node.js) ───────────────────────────────
 FROM registry.access.redhat.com/ubi9/nodejs-20:9.5 AS builder
 
-WORKDIR /build
+# Build in the app-root the base image provisions for the non-root user (1001).
+# A custom WORKDIR like /build is owned by root and not writable by 1001, so
+# `npm ci` fails to create node_modules (EACCES). /opt/app-root/src is the
+# base image's HOME and is writable by the default user.
+WORKDIR /opt/app-root/src
 
-# Copy package manifests first for layer caching
-COPY services/claimant-portal/package.json services/claimant-portal/package-lock.json* ./
+# Copy package manifests first for layer caching. --chown to the non-root build
+# user (1001, group 0) so npm and tsc can write node_modules + *.tsbuildinfo
+# into this directory (a root-owned copy fails with EACCES under user 1001).
+COPY --chown=1001:0 services/claimant-portal/package.json services/claimant-portal/package-lock.json* ./
 
 # Install exact pinned dependencies (no lockfile mutation)
 RUN npm ci --ignore-scripts
 
 # Copy source and build
-COPY services/claimant-portal/ ./
+COPY --chown=1001:0 services/claimant-portal/ ./
 RUN npm run build
 
 # ── Stage 2: Runtime (serve static assets via Node) ─────────
@@ -36,7 +42,7 @@ WORKDIR /app
 RUN npm install --global serve@14.2.4
 
 # Copy built assets from builder
-COPY --from=builder /build/dist ./dist
+COPY --from=builder /opt/app-root/src/dist ./dist
 
 USER 1001
 
