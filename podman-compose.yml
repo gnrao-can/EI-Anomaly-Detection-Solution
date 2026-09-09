@@ -195,11 +195,9 @@ services:
       context: .
       dockerfile: services/claim-intake/Containerfile
     container_name: ei-ads-claim-intake
-    # No host port published — reached via the Caddy proxy (localhost:8080) or
-    # by other services over the internal network by name (claim-intake:8001).
-    # Publishing only the proxy's 8080 avoids a Podman rootless/applehv port-
-    # allocator bug that spuriously reports "address already in use" when many
-    # host ports are published at once. (See docs/regeneration/STATUS.md.)
+    # No host port — internal only (claim-intake:8001). The walkthrough submits
+    # a claim from inside the compose network (a throwaway curl container), which
+    # avoids stuck gvproxy host-port forwards. See docs/regeneration/STATUS.md.
     environment:
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       POSTGRES_HOST: "postgres"
@@ -228,6 +226,9 @@ services:
     environment:
       ROE_ADAPTER_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       ROE_ADAPTER_KAFKA_ROE_TOPIC: "roe.received"
+      # /roe/rest validates a GCKey Bearer (Req 19.7); without a JWKS URL it
+      # returns 401 "Unable to retrieve GCKey signing keys". Was missing.
+      GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
     # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
@@ -352,6 +353,11 @@ services:
     # No host port — internal only (see claim-intake note).
     environment:
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
+      # Persist each RiskAssessment to Postgres risk_assessments so the
+      # investigator dashboard queue can read it. Without this DSN the scorer
+      # computes + publishes claim.scored but skips persistence (no-op path),
+      # leaving the queue empty.
+      EI_ADS_PG_DSN: "postgresql://ei_ads_app:changeme_local_only@postgres:5432/ei_ads"
     # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 

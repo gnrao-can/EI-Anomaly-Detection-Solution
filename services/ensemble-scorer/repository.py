@@ -49,11 +49,13 @@ INSERT INTO risk_assessments (
 ON CONFLICT (assessment_id) DO NOTHING
 """
 
+# Columns match the shap_attributions schema (migration 002): the table links
+# to the assessment via assessment_id and has no claim_id / scored_at columns.
 _PG_INSERT_ATTRIBUTION = """
 INSERT INTO shap_attributions (
-    assessment_id, claim_id, indicator_id, feature_name,
-    contribution, base_value, scored_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7)
+    assessment_id, indicator_id, feature_name,
+    contribution, base_value
+) VALUES ($1, $2, $3, $4, $5)
 """
 
 
@@ -193,12 +195,10 @@ class RiskAssessmentRepository:
         rows = [
             (
                 assessment.assessment_id,
-                assessment.claim_id,
                 a.indicator_id,
                 a.feature_name,
                 float(a.contribution),
                 float(a.base_value),
-                assessment.scored_at,
             )
             for a in assessment.shap_attributions
         ]
