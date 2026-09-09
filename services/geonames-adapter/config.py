@@ -34,7 +34,14 @@ except ImportError:  # pragma: no cover - fallback for minimal environments
 
 
 # Repository root: services/geonames-adapter/config.py -> parents[2] == repo root
-_REPO_ROOT = Path(__file__).resolve().parents[2]
+# Repository-root-relative default location of the local GeoNames dump.
+# In the source tree this file lives at services/geonames-adapter/config.py, so
+# parents[2] is the repo root. In a built image the service source is flattened
+# to /app/config.py (no such ancestor), so guard the lookup: fall back to a
+# CWD-relative default that is expected to be overridden by GEONAMES_LOCAL_DUMP_
+# PATH (the dev compose bind-mounts the dump and sets that env var).
+_here = Path(__file__).resolve()
+_REPO_ROOT = _here.parents[2] if len(_here.parents) >= 3 else _here.parent
 _DEFAULT_LOCAL_DUMP = _REPO_ROOT / "mock-data" / "geonames" / "local-dump.json"
 
 

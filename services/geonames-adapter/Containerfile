@@ -38,10 +38,14 @@ WORKDIR /app
 # whole venv (packages + console scripts) rather than the /usr/* paths.
 COPY --from=builder /opt/app-root /opt/app-root
 
-# Copy shared package, service source, and the local GeoNames dump
+# Copy shared package and service source.
+# NOTE: the local GeoNames dump (mock-data/geonames/) is intentionally NOT baked
+# into the image — .containerignore excludes mock-data/ from production images
+# (prod resolves via the live GeoNames REST API). In dev/test the dump is
+# bind-mounted read-only via podman-compose (GEONAMES_LOCAL_DUMP_PATH), mirroring
+# the CRA / Stats Canada / Job Bank / MVR / CBSA adapters.
 COPY --from=builder /build/shared ./shared
 COPY services/geonames-adapter/ ./
-COPY mock-data/geonames/ ./mock-data/geonames/
 
 # Drop to non-root (OpenShift default UID)
 USER 1001
