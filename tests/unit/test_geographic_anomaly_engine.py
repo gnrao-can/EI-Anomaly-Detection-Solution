@@ -260,3 +260,106 @@ class TestHealthz:
         resp = client.get("/healthz")
         assert resp.status_code == 200
         assert resp.json()["status"] == "ok"
+
+
+# ===========================================================================
+# Engine -> adapter authentication (Req 19.7)
+#
+# The GeoNames / MVR / CBSA adapters are auth-gated (require_role(INVESTIGATOR)).
+# The engine's adapter clients must present the service Bearer token when one is
+# configured, and must send NO Authorization header when it is absent (unit
+# tests / no credential). These tests drive each real HTTP client through an
+# httpx.MockTransport and assert the header contract.
+# ===========================================================================
+
+
+try:
+    import httpx  # noqa: E402
+
+    _HAS_HTTPX = True
+except Exception:  # noqa: BLE001
+    _HAS_HTTPX = False
+
+
+@pytest.mark.skipif(not _HAS_HTTPX, reason="httpx not importable")
+class TestEngineAdapterAuth:
+    """Each adapter client attaches (or omits) the service Bearer (Req 19.7)."""
+
+    GeoNamesAdapterClient = _client.GeoNamesAdapterClient
+    MVRAdapterClient = _main.MVRAdapterClient
+    CBSAAdapterClient = _main.CBSAAdapterClient
+
+    @staticmethod
+    def _capture(monkeypatch, payload: dict, status_code: int = 200):
+        """Patch httpx.AsyncClient so requests hit a MockTransport that records
+        the Authorization header seen, returning ``payload``/``status_code``."""
+        seen: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen["authorization"] = request.headers.get("authorization")
+            return httpx.Response(status_code, json=payload)
+
+        real_async_client = httpx.AsyncClient
+
+        def _factory(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            return real_async_client(*args, **kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", _factory)
+        return seen
+
+    @pytest.mark.asyncio
+    async def test_geonames_client_sends_bearer_when_token_set(self, monkeypatch):
+        seen = self._capture(
+            monkeypatch, {"latitude": 45.0, "longitude": -75.0, "source": "test"}
+        )
+        client = self.GeoNamesAdapterClient("http://geonames", bearer_token="tok-123")
+        await client.resolve("K1A")
+        assert seen["authorization"] == "Bearer tok-123"
+
+    @pytest.mark.asyncio
+    async def test_geonames_client_no_header_when_token_absent(self, monkeypatch):
+        seen = self._capture(
+            monkeypatch, {"latitude": 45.0, "longitude": -75.0, "source": "test"}
+        )
+        client = self.GeoNamesAdapterClient("http://geonames")
+        await client.resolve("K1A")
+        assert seen["authorization"] is None
+
+    @pytest.mark.asyncio
+    async def test_mvr_client_sends_bearer_when_token_set(self, monkeypatch):
+        seen = self._capture(
+            monkeypatch,
+            {"record": {"vehicle_ownership_status": "NONE", "vehicle_class": None}},
+        )
+        client = self.MVRAdapterClient("http://mvr", bearer_token="tok-456")
+        await client.get_ownership("sinhash", "ON")
+        assert seen["authorization"] == "Bearer tok-456"
+
+    @pytest.mark.asyncio
+    async def test_mvr_client_no_header_when_token_absent(self, monkeypatch):
+        seen = self._capture(
+            monkeypatch,
+            {"record": {"vehicle_ownership_status": "NONE", "vehicle_class": None}},
+        )
+        client = self.MVRAdapterClient("http://mvr")
+        await client.get_ownership("sinhash", "ON")
+        assert seen["authorization"] is None
+
+    @pytest.mark.asyncio
+    async def test_cbsa_client_sends_bearer_when_token_set(self, monkeypatch):
+        seen = self._capture(
+            monkeypatch, {"status": "OK", "partial": False, "absence_periods": []}
+        )
+        client = self.CBSAAdapterClient("http://cbsa", bearer_token="tok-789")
+        await client.get_absences("sinhash", "ON")
+        assert seen["authorization"] == "Bearer tok-789"
+
+    @pytest.mark.asyncio
+    async def test_cbsa_client_no_header_when_token_absent(self, monkeypatch):
+        seen = self._capture(
+            monkeypatch, {"status": "OK", "partial": False, "absence_periods": []}
+        )
+        client = self.CBSAAdapterClient("http://cbsa")
+        await client.get_absences("sinhash", "ON")
+        assert seen["authorization"] is None

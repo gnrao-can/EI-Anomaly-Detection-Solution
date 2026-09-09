@@ -116,12 +116,18 @@ class CBSAAdapterClient:
         *,
         connect_timeout: float = 1.0,
         read_timeout: float = 5.0,
+        bearer_token: Optional[str] = None,
     ) -> None:
         if not _HAS_HTTPX:  # pragma: no cover - environment guard
             raise RuntimeError("httpx is required for CBSAAdapterClient")
         self._base_url = base_url.rstrip("/")
         self._connect_timeout = connect_timeout
         self._read_timeout = read_timeout
+        # Internal GCKey Bearer presented to the auth-gated CBSA Adapter
+        # (Req 19.7). ``None`` (unit tests) => no Authorization header.
+        self._headers = (
+            {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
+        )
 
     async def get_absences(self, sin_hash: str, province: str) -> CBSAAbsenceResult:
         url = f"{self._base_url}/cbsa/travel/{sin_hash}"
@@ -132,7 +138,7 @@ class CBSAAdapterClient:
             pool=self._connect_timeout,
         )
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            async with httpx.AsyncClient(timeout=timeout, headers=self._headers) as client:
                 resp = await client.get(url, params={"province": province})
         except Exception:  # noqa: BLE001 - any transport error -> unavailable
             return CBSAAbsenceResult(available=False)

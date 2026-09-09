@@ -67,6 +67,15 @@ if _HAS_PYDANTIC_SETTINGS:
         cbsa_connect_timeout_seconds: float = 1.0
         cbsa_read_timeout_seconds: float = 5.0
 
+        # ── Internal service auth (Req 19.7) ────────────────────────
+        # Service Bearer token presented on the internal GeoNames / MVR / CBSA
+        # Adapter calls. Every EI-ADS endpoint validates a GCKey Bearer (Req
+        # 19.7 / design "Token validation"), so the engine authenticates to
+        # each adapter with its own service credential — mirroring the
+        # orchestrator's ORCHESTRATOR_SERVICE_TOKEN and the History/Regional
+        # engines' SERVICE_TOKEN pattern. Empty in unit tests (no header sent).
+        service_token: str = ""
+
         # ── Wall-clock budget (Req 4.9) ─────────────────────────────
         # Total budget in milliseconds from claim.received to the final
         # Indicator being published. On budget exhaustion the engine returns
@@ -124,6 +133,9 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
             self.cbsa_read_timeout_seconds = float(
                 os.environ.get("CBSA_READ_TIMEOUT_SECONDS", "5.0")
             )
+
+            # Internal service Bearer token (Req 19.7); empty in unit tests.
+            self.service_token = os.environ.get("SERVICE_TOKEN", "")
 
             self.analysis_budget_ms = int(
                 os.environ.get("ANALYSIS_BUDGET_MS", "600")

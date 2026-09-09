@@ -173,12 +173,17 @@ async def lifespan(app: FastAPI):
 
     # In dev/test the caller injects fakes on app.state.{geonames,mvr,cbsa,producer}.
     # In production we build HTTP-backed clients pointed at the adapter URLs.
+    # Internal GCKey service Bearer presented to the auth-gated GeoNames / MVR /
+    # CBSA adapters (Req 19.7). Empty in unit tests (no header sent).
+    service_token = getattr(settings, "service_token", "") or None
+
     if not hasattr(app.state, "geonames"):
         try:
             app.state.geonames = GeoNamesAdapterClient(
                 settings.geonames_adapter_url,
                 connect_timeout=settings.geonames_connect_timeout_seconds,
                 read_timeout=settings.geonames_read_timeout_seconds,
+                bearer_token=service_token,
             )
         except Exception:  # noqa: BLE001 - httpx unavailable in minimal envs
             app.state.geonames = None
@@ -189,6 +194,7 @@ async def lifespan(app: FastAPI):
                 settings.mvr_adapter_url,
                 connect_timeout=settings.mvr_connect_timeout_seconds,
                 read_timeout=settings.mvr_read_timeout_seconds,
+                bearer_token=service_token,
             )
         except Exception:  # noqa: BLE001
             app.state.mvr = None
@@ -199,6 +205,7 @@ async def lifespan(app: FastAPI):
                 settings.cbsa_adapter_url,
                 connect_timeout=settings.cbsa_connect_timeout_seconds,
                 read_timeout=settings.cbsa_read_timeout_seconds,
+                bearer_token=service_token,
             )
         except Exception:  # noqa: BLE001
             app.state.cbsa = None
