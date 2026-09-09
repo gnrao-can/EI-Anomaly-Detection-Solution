@@ -244,22 +244,94 @@ local-dev JWKS + signed INVESTIGATOR service token for internal GCKey Bearer val
 (Req 19.7 faithful; no bypass). `podman-compose config` lints clean; the engine, adapter, and
 portal-backend images were verified to BUILD and BOOT.
 
-**Honest behaviour (updated for Slice 3):** THREE engines are now composed, so a submitted claim
-crosses the ≥3-engine threshold and reaches a **DETERMINATE** decision (Req 2.2/2.5) — the claim
-flows intake → orchestrator → (repetitive + history + regional) → ensemble scorer → DETERMINATE
-`claim.scored` → the investigator queue. Because the three adapters are composed in mock mode and
-the engines forward their `SERVICE_TOKEN` (INVESTIGATOR Bearer) to them, a claim with the right
-region/NOC (e.g. region 59 / NOC 63201) surfaces real HIGH signals → **FLAG/INVESTIGATE**; a claim
-without such signals lands at **AUTO_APPROVE**. Both the degrading (AUTO_APPROVE) and with-adapters
-(FLAG/INVESTIGATE) determinate paths are covered by integration tests over real transports (see
-"Slice 3"). The GCKey login flow is still not walkable locally (no IdP); the dashboard
-queue/detail/disposition read flow IS.
+**Honest behaviour (updated for Slice 3 — now VERIFIED LIVE over compose):** THREE engines are
+composed, so a submitted claim crosses the ≥3-engine threshold and reaches a **DETERMINATE**
+decision (Req 2.2/2.5). The full flow was exercised end-to-end on the running stack:
+intake `POST /api/v1/claims` (202) → `claim.received` (real Kafka) → ROE `POST /roe/rest` (202) →
+`roe.received` → orchestrator **pairs claim+ROE by claim_id** (Redis) → dispatches to engines →
+**ensemble scorer** → `claim.scored` published → **persisted to Postgres `risk_assessments`**.
+Observed real decisions: a paired claim scored **`FLAG_FOR_REVIEW` (risk_score 44)** (verified row
+in `risk_assessments`), and a run where <3 engines completed correctly yielded **INDETERMINATE**
+(payment halted). Both determinate paths are ALSO covered by integration tests over real transports
+(see "Slice 3").
 
-**Bring-up recipe (run in a human terminal — the agent is server-guarded):**
-1. `podman machine start` (ensure a reachable daemon).
-2. `python scripts/dev/gen-service-token.py` (writes gitignored `.env.dev-token` + `scripts/dev/jwks/`).
-3. `podman-compose up --build` (first build is slow — services install the full pyproject incl. heavy ML).
-4. Browse `http://localhost:8080` (Caddy single origin → SPA + portal-backend).
+**Three real defects were found ONLY by running the live compose walkthrough** (the integration
+tests inject events directly / use loopback, so they didn't surface these) — all fixed (29053b7):
+1. `roe-adapter` was missing `GCKEY_JWKS_URL` → `POST /roe/rest` returned 401 "Unable to retrieve
+   GCKey signing keys" (Req 19.7: the ROE endpoint must validate a GCKey Bearer).
+2. `ensemble-scorer` had no `EI_ADS_PG_DSN` → it published `claim.scored` but SILENTLY skipped
+   Postgres persistence (no-op path), so `risk_assessments` stayed empty and the investigator queue
+   could never populate.
+3. Schema mismatch: `ensemble-scorer/repository.py` inserted `claim_id` + `scored_at` into
+   `shap_attributions`, but that table (migration 002) has only
+   `assessment_id, indicator_id, feature_name, contribution, base_value`. The asyncpg
+   `UndefinedColumnError` rolled back the whole persist → scorer 500 → orchestrator fell back to a
+   spurious INDETERMINATE. Fixed the INSERT + row tuples to match the schema.
+
+**Still blocked locally — the GCKey browser session.** The portal-backend `/portal/*` and write
+`/api/*` endpoints authenticate via a **signed HttpOnly session cookie** minted by the GCKey OAuth
+code exchange. There is no local GCKey IdP, so that cookie cannot be obtained through the browser.
+The data IS present and correct (verified in Postgres) and the read APIs work given a valid session.
+For local dev, `scripts/dev/mint-session-cookie.py` mints a valid signed session cookie (same
+HMAC-SHA256 over `SESSION_SECRET` the BFF uses) so the dashboard IS browsable without a GCKey IdP —
+see the recipe below. Claim SUBMISSION through the portal still needs a real GCKey access token in
+the session (Bearer-forward to intake); submit directly to `claim-intake` with a minted CLAIMANT
+Bearer instead (as in the recipe).
+
+**Bring-up recipe (run in a human terminal — the agent is server-guarded). This is the recipe that
+ACTUALLY WORKS on macOS + Podman 6 after a long debugging session; deviations reintroduce the
+failures noted in "Task 30 — compose gotchas" below:**
+1. `export CONTAINERS_MACHINE_PROVIDER=applehv` — use Apple's Virtualization.framework backend, NOT
+   the default libkrun/krunkit (which failed to boot: `krunkit exited unexpectedly with exit code 2`).
+   Add it to `~/.zshrc` so every shell uses it.
+2. `podman machine start podman-machine-default` (150 GiB disk; the default ~80 GiB fills up because
+   each Python image installs the full heavy-ML pyproject — see "Deferred/known").
+3. `.venv-core/bin/python scripts/dev/gen-service-token.py` — writes gitignored `.env.dev-token`
+   (`ORCHESTRATOR_SERVICE_TOKEN` + `SERVICE_TOKEN`, both INVESTIGATOR), the signing key
+   `scripts/dev/jwks/signing-key.pem`, and the public JWKS. Run with the venv python (it has
+   `python-jose`); a bare `python` gives `ModuleNotFoundError: jose`.
+4. Build images SEQUENTIALLY once (parallel `podman-compose --build` OOMs the fresh 8 GiB VM):
+   for each service `s`, `podman build -f services/$s/Containerfile -t "ei-anomaly-detection-solution_${s}:latest" .`
+   (quote the tag as one token so the shell does not mangle `$s:latest`).
+5. `podman-compose --in-pod false up -d` — `--in-pod false` runs standalone containers; the shared
+   pod model + `depends_on` (removed from the compose) caused phantom "address already in use"
+   port collisions. NEVER set `DOCKER_HOST` — `podman`/`podman-compose` use the DEFAULT connection;
+   a `DOCKER_HOST` set to a forwarded socket operates on a different view and your teardowns miss the
+   real containers.
+6. Browse `http://localhost:8090` (proxy maps host 8090 → container 8080; host 8080 can get stuck
+   held by a leftover gvproxy forward). Only `8090` (proxy) and `5432` (postgres) publish to the host.
+7. Drive the pipeline (submit from INSIDE the network — internal services publish no host ports):
+   mint a CLAIMANT Bearer with `scripts/dev/mint-token.py`, POST the claim to `claim-intake:8001`,
+   capture its `claim_id`, then POST a matching ROE (same `claimId`) to `roe-adapter:8002/roe/rest`,
+   both via a throwaway `curl` container on network `ei-anomaly-detection-solution_default`. Inspect
+   the decision: `podman exec ei-ads-postgres psql -U ei_ads_app -d ei_ads -c "select claim_id,risk_score,risk_decision from risk_assessments order by scored_at desc limit 5;"`
+8. Browse the investigator dashboard: `.venv-core/bin/python scripts/dev/mint-session-cookie.py --role INVESTIGATOR`
+   prints a `Cookie: ei_ads_session=...` header and a ready `curl` for `/portal/investigator/claims`
+   via `http://localhost:8090`. In a browser, set that cookie for `localhost:8090` (devtools →
+   Application → Cookies) and load the dashboard.
+
+**If a bring-up fails, RESET cleanly (never `up` on top of partial state; no inline `#` comments in
+a pasted zsh block):** `unset DOCKER_HOST; podman stop -t 3 $(podman ps -aq); podman rm -f $(podman ps -aq)`.
+
+### Task 30 — compose gotchas (macOS + Podman 6) — captured so nobody loses an afternoon again
+- **VM backend:** default libkrun/krunkit failed to boot (`exit code 2`); switching to `applehv`
+  (`CONTAINERS_MACHINE_PROVIDER=applehv`, uses `vfkit` + Virtualization.framework) fixed it.
+- **VM disk:** the VM's disk is separate from the Mac's; heavy-ML images fill the default ~80 GiB.
+  Use `--disk-size 150` on `machine init`, and `podman image prune -a -f` to reclaim.
+- **Parallel builds OOM** the fresh 8 GiB VM → build sequentially (step 4) or `machine set --memory 12288`.
+- **Port publishing:** publishing ~18 host ports tripped a Podman rootless/applehv port-allocator
+  bug (spurious "address already in use" on FREE ports). Fixed by publishing ONLY proxy(8090)+postgres(5432);
+  all other services are internal-only and reached by service name.
+- **`depends_on`** → podman-compose hard `--requires` links → out-of-order-removal deadlocks + netns
+  coupling. Removed from the compose; services degrade-and-retry instead.
+- **Kafka advertised listener** was `localhost:9092` → in-network clients were redirected to their own
+  localhost. Set to `kafka:9092`. (Only "worked" before because 9092 was host-published.)
+- **`--in-pod false`** — run standalone containers, not the shared pod.
+- **NEVER set `DOCKER_HOST`** — use the default connection; a forwarded socket is a different view.
+- **`podman-compose down` is unreliable** (tries to remove running containers) — use the stop+rm reset.
+- **Stuck gvproxy host-port forward** survives container removal; remap the host port (e.g. 8080→8090)
+  or `podman machine stop/start` to clear all forwards.
+- **`.venv-core/bin/python`** for the dev scripts (has `python-jose`); bare `python` lacks it.
 
 **Chain of pre-existing gaps found + fixed while doing task 30** (all "marked-done but never run"):
 - Orchestrator SERVICE entrypoint dispatched via a logging-only placeholder → wired the real
