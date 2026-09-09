@@ -255,6 +255,15 @@ in `risk_assessments`), and a run where <3 engines completed correctly yielded *
 (payment halted). Both determinate paths are ALSO covered by integration tests over real transports
 (see "Slice 3").
 
+**Investigator-action half closed too (Req 22.1/22.3/22.4/22.6 — verified live):** with a dev
+session cookie (`scripts/dev/mint-session-cookie.py`), `GET /portal/investigator/claims` returns the
+`FLAG_FOR_REVIEW` claim with server-side PII masking (SIN `***-**-426`); `PUT /api/v1/claims/{id}/disposition`
+records a disposition to `claim_dispositions` attributed to the GCKey subject (append-only — a
+`CONFIRMED_FRAUD` then a `FALSE_POSITIVE` produced two rows, latest = current), and the
+CONFIRMED_FRAUD/FALSE_POSITIVE cases published an `outcome.feedback` Kafka event for model
+retraining. So the full claimant→pipeline→decision→investigator-review→disposition→feedback loop is
+demonstrable end-to-end locally.
+
 **Three real defects were found ONLY by running the live compose walkthrough** (the integration
 tests inject events directly / use loopback, so they didn't surface these) — all fixed (29053b7):
 1. `roe-adapter` was missing `GCKEY_JWKS_URL` → `POST /roe/rest` returned 401 "Unable to retrieve
