@@ -212,13 +212,12 @@ services:
       REDIS_URL: "redis://redis:6379"
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
       SIN_HASH_SALT: "local_dev_salt_change_me"
-    depends_on:
-      kafka:
-        condition: service_healthy
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+    # NOTE: depends_on intentionally omitted. podman-compose translates it into
+    # hard --requires container links, which (a) deadlock out-of-order removal
+    # and (b) couple container network namespaces, causing spurious "address
+    # already in use" port-bind failures on start. Services degrade-and-retry
+    # until their dependencies are reachable, so ordering is not required for a
+    # local dev bring-up. (See docs/regeneration/STATUS.md "Task 30".)
     restart: unless-stopped
 
   # ── ROE Adapter ───────────────────────────────────────────
@@ -232,9 +231,7 @@ services:
     environment:
       ROE_ADAPTER_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       ROE_ADAPTER_KAFKA_ROE_TOPIC: "roe.received"
-    depends_on:
-      kafka:
-        condition: service_healthy
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── CRA Adapter (Slice 3 — signals for History Inconsistency) ─
@@ -251,9 +248,7 @@ services:
     environment:
       APP_ENV: "development"
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
-    depends_on:
-      jwks:
-        condition: service_started
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── Stats Canada Adapter (Slice 3 — signals for Regional Analysis) ─
@@ -277,9 +272,7 @@ services:
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
     volumes:
       - ./mock-data/stats-canada:/app/mock-data/stats-canada:ro,z
-    depends_on:
-      jwks:
-        condition: service_started
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── Job Bank Adapter (Slice 3 — signals for Regional Analysis) ─
@@ -301,9 +294,7 @@ services:
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
     volumes:
       - ./mock-data/job-bank:/app/mock-data/job-bank:ro,z
-    depends_on:
-      jwks:
-        condition: service_started
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── Repetitive Pattern Engine (the ONE implemented engine) ─
@@ -316,9 +307,7 @@ services:
       - "8021:8021"
     environment:
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
-    depends_on:
-      jwks:
-        condition: service_started
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── History Inconsistency Engine (Slice 3 — engine #2) ─────
@@ -338,11 +327,7 @@ services:
     environment:
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
       CRA_ADAPTER_URL: "http://cra-adapter:8011"
-    depends_on:
-      jwks:
-        condition: service_started
-      cra-adapter:
-        condition: service_started
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── Regional Analysis Engine (Slice 3 — engine #3) ─────────
@@ -364,13 +349,7 @@ services:
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
       STATSCAN_ADAPTER_URL: "http://stats-canada-adapter:8017"
       JOB_BANK_ADAPTER_URL: "http://job-bank-adapter:8016"
-    depends_on:
-      jwks:
-        condition: service_started
-      stats-canada-adapter:
-        condition: service_started
-      job-bank-adapter:
-        condition: service_started
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── Ensemble Scorer (heuristic fallback; no heavy ML) ──────
@@ -383,9 +362,7 @@ services:
       - "8004:8004"
     environment:
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
-    depends_on:
-      jwks:
-        condition: service_started
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── Detection Pipeline Orchestrator ───────────────────────
@@ -412,19 +389,9 @@ services:
       ORCHESTRATOR_ENGINE_HISTORY_INCONSISTENCY_URL: "http://history-inconsistency-engine:8010"
       ORCHESTRATOR_ENGINE_REGIONAL_ANALYSIS_URL: "http://regional-analysis-engine:8020"
       ORCHESTRATOR_ENSEMBLE_SCORER_URL: "http://ensemble-scorer:8004"
-    depends_on:
-      kafka:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      repetitive-pattern-engine:
-        condition: service_started
-      history-inconsistency-engine:
-        condition: service_started
-      regional-analysis-engine:
-        condition: service_started
-      ensemble-scorer:
-        condition: service_started
+    # depends_on omitted — see claim-intake note above. The orchestrator's Kafka
+    # consumer degrades-and-retries until the broker is reachable, so start
+    # order does not matter for a local dev bring-up.
     restart: unless-stopped
 
   # ── Portal Backend-for-Frontend ───────────────────────────
@@ -448,11 +415,7 @@ services:
       # GCKey OAuth endpoints: no local IdP, so the login flow is not walkable
       # in compose; the dashboard read/queue/detail/disposition flow IS.
       SIN_HASH_SALT: "local_dev_salt_change_me"
-    depends_on:
-      postgres:
-        condition: service_healthy
-      kafka:
-        condition: service_healthy
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── Claimant Portal SPA (static build) ────────────────────
@@ -476,9 +439,8 @@ services:
       - "8080:8080"
     volumes:
       - ./scripts/dev/Caddyfile:/etc/caddy/Caddyfile:ro
-    depends_on:
-      - claimant-portal
-      - portal-backend
+    # depends_on omitted — see claim-intake note above. Caddy retries upstreams,
+    # so it tolerates the SPA/portal-backend coming up after it.
     restart: unless-stopped
 
 volumes:
