@@ -423,8 +423,12 @@ services:
   proxy:
     image: docker.io/caddy:2.8-alpine
     container_name: ei-ads-proxy
+    # Host 8090 -> container 8080. Host 8080 can get stuck held by a leftover
+    # gvproxy forward from a prior run (gvproxy does not release the forward when
+    # its container is removed out-of-band, and it cannot be killed selectively
+    # without dropping VM networking). Browse the stack at http://localhost:8090.
     ports:
-      - "8080:8080"
+      - "8090:8080"
     volumes:
       - ./scripts/dev/Caddyfile:/etc/caddy/Caddyfile:ro
     # depends_on omitted — see claim-intake note above. Caddy retries upstreams,
