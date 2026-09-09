@@ -640,3 +640,377 @@ async def test_three_engines_yield_determinate_over_real_transports(
         for svc in services:
             svc.stop()
         os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
+
+
+# ===========================================================================
+# Slice 3 — WITH mock-data adapters: the engines find REAL signals, so the
+# ≥3-engine determinate path yields a NON-AUTO_APPROVE decision (Req 8.4/8.6).
+#
+# The Regional Analysis engine, backed by the Job Bank adapter's open-data
+# snapshot, sees 245 active postings (> 200 → HIGH, Req 8.4) and a median
+# advertised wage of $24.10 that exceeds the claimant's $15.00/h insurable
+# earnings by more than 1.15x (→ HIGH, Req 8.6). Two HIGH Indicators from a
+# single real engine drive the heuristic scorer's Risk_Score to ≥ 30, so the
+# determinate decision is FLAG_FOR_REVIEW / INVESTIGATE — never AUTO_APPROVE,
+# never INDETERMINATE.
+#
+# Every engine→adapter call presents the engine's SERVICE_TOKEN (INVESTIGATOR
+# Bearer); the adapters run their REAL shared.auth JWKS validation (Req 19.7).
+# Nothing is faked: real Kafka, real HTTP, real auth, real fixtures.
+# ===========================================================================
+
+
+def _reset_service_settings(service_dir_name: str) -> None:
+    """Clear a service's cached Settings so it re-reads freshly-set env vars.
+
+    ``load_service_module`` caches modules by a namespaced key, so a config
+    module loaded by an earlier test keeps its ``@lru_cache``d Settings. We
+    evict that cache before (re)starting the service under new env vars.
+    """
+    config_mod = load_service_module(service_dir_name, "config", siblings=["config"])
+    getter = getattr(config_mod, "get_settings", None)
+    if getter is not None and hasattr(getter, "cache_clear"):
+        getter.cache_clear()
+
+
+def _start_cra_adapter(jwks_url: str) -> LoopbackService:
+    """Start the CRA adapter (synthetic T4 in dev) on loopback HTTP, auth-gated."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    _reset_service_settings("cra-adapter")
+    adapter_main = load_service_module(
+        "cra-adapter", "main", siblings=["config", "client", "audit", "main"]
+    )
+    return LoopbackService(adapter_main.app, health_path="/healthz").start()
+
+
+def _start_stats_canada_adapter(jwks_url: str) -> LoopbackService:
+    """Start the Stats Canada adapter (mock-data LFS) on loopback HTTP, auth-gated."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    os.environ["STATSCAN_USE_MOCK"] = "true"
+    _reset_service_settings("stats-canada-adapter")
+    adapter_main = load_service_module(
+        "stats-canada-adapter", "main", siblings=["config", "client", "main"]
+    )
+    return LoopbackService(adapter_main.app, health_path="/healthz").start()
+
+
+def _start_job_bank_adapter(jwks_url: str) -> LoopbackService:
+    """Start the Job Bank adapter (open-data snapshot) on loopback HTTP, auth-gated."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    _reset_service_settings("job-bank-adapter")
+    adapter_main = load_service_module(
+        "job-bank-adapter", "main", siblings=["config", "client", "serialization", "main"]
+    )
+    return LoopbackService(adapter_main.app, health_path="/healthz").start()
+
+
+def _start_history_engine_with_adapter(jwks_url: str, cra_url: str) -> LoopbackService:
+    """Start History Inconsistency wired to a REAL CRA adapter (forwards token)."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["CRA_ADAPTER_URL"] = cra_url
+    _reset_service_settings("history-inconsistency-engine")
+    engine_main = load_service_module(
+        "history-inconsistency-engine",
+        "main",
+        siblings=[
+            "config", "client", "discrepancy", "noc",
+            "llm_client", "kafka_publisher", "analysis", "main",
+        ],
+    )
+    # The module may be cached from an earlier (no-adapter) test: refresh the
+    # app's settings and drop the CRA client so it is rebuilt against the new
+    # adapter URL + SERVICE_TOKEN on the next request.
+    config_mod = load_service_module(
+        "history-inconsistency-engine", "config", siblings=["config"]
+    )
+    engine_main.app.state.settings = config_mod.get_settings()
+    engine_main.app.state.cra_client = None
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+def _start_regional_engine_with_adapters(
+    jwks_url: str, statscan_url: str, job_bank_url: str
+) -> LoopbackService:
+    """Start Regional Analysis wired to REAL Stats Canada + Job Bank adapters."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["STATSCAN_ADAPTER_URL"] = statscan_url
+    os.environ["JOB_BANK_ADAPTER_URL"] = job_bank_url
+    _reset_service_settings("regional-analysis-engine")
+    engine_main = load_service_module(
+        "regional-analysis-engine",
+        "main",
+        siblings=[
+            "config", "client", "detection", "seasonality",
+            "forecast", "providers", "kafka_producer", "main",
+        ],
+    )
+    config_mod = load_service_module(
+        "regional-analysis-engine", "config", siblings=["config"]
+    )
+    engine_main.app.state.settings = config_mod.get_settings()
+    # Drop cached adapter clients so they rebuild against the new URLs + token.
+    engine_main.app.state.statscan_client = None
+    engine_main.app.state.job_bank_client = None
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_three_engines_with_adapters_yield_flag_over_real_transports(
+    itest_service_auth,
+):
+    """≥3 engines + mock-data adapters → REAL signals → determinate NON-AUTO_APPROVE.
+
+    Backed by the Job Bank open-data snapshot, the Regional Analysis engine
+    produces two HIGH Indicators for NOC 63201 / region 59 / 2024-05 (245
+    postings > 200, Req 8.4; median wage $24.10 > $15.00×1.15, Req 8.6). With
+    ≥3 engines complete the pipeline runs the Ensemble Scorer, whose heuristic
+    maps two HIGH Indicators to a Risk_Score ≥ 30 → FLAG_FOR_REVIEW /
+    INVESTIGATE (never AUTO_APPROVE, never INDETERMINATE).
+
+    Engines authenticate to the auth-gated adapters with their SERVICE_TOKEN
+    (INVESTIGATOR Bearer, Req 19.7); the adapters run real JWKS validation.
+    """
+    from testcontainers.kafka import KafkaContainer  # guarded import
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
+    correlator_mod, engine_dispatch_mod, scoring_mod, publisher_mod, consumer_mod = (
+        _load_orchestrator_modules()
+    )
+    EventCorrelator = correlator_mod.EventCorrelator
+    InMemoryPairingStore = correlator_mod.InMemoryPairingStore
+    CLAIM_RECEIVED = correlator_mod.CLAIM_RECEIVED
+    ROE_RECEIVED = correlator_mod.ROE_RECEIVED
+
+    EngineDispatcher = engine_dispatch_mod.EngineDispatcher
+    EngineType = engine_dispatch_mod.EngineType
+    ALL_ENGINES = engine_dispatch_mod.ALL_ENGINES
+    ENGINE_ANALYZE_PATH = engine_dispatch_mod.ENGINE_ANALYZE_PATH
+    MIN_ENGINES_REQUIRED = engine_dispatch_mod.MIN_ENGINES_REQUIRED
+
+    ScoringClient = scoring_mod.ScoringClient
+    HttpxScorerCaller = scoring_mod.HttpxScorerCaller
+
+    ResultPublisher = publisher_mod.ResultPublisher
+    AIOKafkaProducerAdapter = publisher_mod.AIOKafkaProducerAdapter
+    CLAIM_SCORED_TOPIC = publisher_mod.CLAIM_SCORED_TOPIC
+
+    OrchestratorConsumer = consumer_mod.OrchestratorConsumer
+
+    from shared.models import RiskDecision
+
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    # Both the orchestrator (engine/scorer calls) and the engines (adapter calls)
+    # present this INVESTIGATOR service Bearer on internal calls (Req 19.7).
+    os.environ["ORCHESTRATOR_SERVICE_TOKEN"] = token
+    os.environ["SERVICE_TOKEN"] = token
+
+    services: list = []
+    kafka = None
+    orchestrator_consumer = producer = scored_consumer = kafka_adapter = None
+    scoring_client = None
+    try:
+        # ── Adapters first (their loopback URLs feed the engine config). ────
+        cra = _start_cra_adapter(jwks_url)
+        statscan = _start_stats_canada_adapter(jwks_url)
+        job_bank = _start_job_bank_adapter(jwks_url)
+
+        # ── Three engines; regional + history wired to the real adapters. ──
+        rpe = _start_repetitive_pattern_engine(jwks_url)
+        history = _start_history_engine_with_adapter(jwks_url, cra.base_url)
+        regional = _start_regional_engine_with_adapters(
+            jwks_url, statscan.base_url, job_bank.base_url
+        )
+        scorer = _start_ensemble_scorer(jwks_url)
+        services = [cra, statscan, job_bank, rpe, history, regional, scorer]
+
+        # Warm the shared JWKS cache once against a real engine.
+        warm = httpx.post(
+            f"{rpe.base_url}{ENGINE_ANALYZE_PATH}",
+            json={"sin_hash": "warmup"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+        assert warm.status_code == 200, warm.text
+
+        # Sanity-check the auth-gated adapter path directly: the Job Bank adapter
+        # must serve the 245-posting fixture WITH the INVESTIGATOR Bearer and
+        # reject the same request WITHOUT it (Req 19.7).
+        jb_url = f"{job_bank.base_url}/jobbank/postings/63201/59/2024-05"
+        jb_ok = httpx.get(
+            jb_url, headers={"Authorization": f"Bearer {token}"}, timeout=5.0
+        )
+        assert jb_ok.status_code == 200, jb_ok.text
+        assert int(jb_ok.json()["active_posting_count"]) == 245, jb_ok.text
+        jb_401 = httpx.get(jb_url, timeout=5.0)
+        assert jb_401.status_code == 401, "adapter must reject an unauthenticated call"
+
+        # Endpoints: the three implemented engines reachable; the other three at
+        # a CLOSED loopback port so they fail fast → PARTIAL_RESULT.
+        dead_port = _closed_loopback_port()
+        real = {
+            EngineType.REPETITIVE_PATTERN: rpe.base_url,
+            EngineType.HISTORY_INCONSISTENCY: history.base_url,
+            EngineType.REGIONAL_ANALYSIS: regional.base_url,
+        }
+        endpoints = {}
+        for engine in ALL_ENGINES:
+            base = real.get(engine, f"http://127.0.0.1:{dead_port}")
+            endpoints[engine] = f"{base}{ENGINE_ANALYZE_PATH}"
+        timeouts = {engine: 5000 for engine in ALL_ENGINES}
+
+        kafka = KafkaContainer()
+        kafka.start()
+        bootstrap = kafka.get_bootstrap_server()
+
+        dispatcher = EngineDispatcher(endpoints=endpoints, timeouts_ms=timeouts)
+        scoring_client = ScoringClient(
+            HttpxScorerCaller(base_url=scorer.base_url), budget_ms=5000
+        )
+        kafka_adapter = AIOKafkaProducerAdapter(bootstrap_servers=bootstrap)
+        result_publisher = ResultPublisher(kafka_adapter, audit_sink=None)
+
+        captured: dict = {}
+
+        async def dispatch_callback(pair):
+            dispatch = await dispatcher.dispatch(pair.claim_payload, pair.roe_payload)
+            captured["dispatch"] = dispatch
+            outcome = await scoring_client.score(
+                dispatch.indicators,
+                dispatch.claim_id,
+                dispatch.engines_completed,
+                dispatch.engines_partial,
+                indeterminate=dispatch.indeterminate,
+            )
+            captured["outcome"] = outcome
+            await result_publisher.publish_scored(dispatch.claim_id, outcome)
+
+        store = InMemoryPairingStore()
+        correlator = EventCorrelator(store)
+        orchestrator_consumer = OrchestratorConsumer(
+            correlator,
+            dispatch_callback,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3-adapters-orchestrator",
+            degrade_gracefully=False,
+        )
+        assert await orchestrator_consumer.start() is True
+
+        scored_consumer = AIOKafkaConsumer(
+            CLAIM_SCORED_TOPIC,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3-adapters-assert",
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+        )
+        await scored_consumer.start()
+
+        # ── Produce paired events with the WITH-SIGNALS payloads. ───────────
+        # claim_start_date 2024-06-01 → reference_month derives to 2024-05 (the
+        # month the Job Bank + LFS fixtures cover). insurable_earnings/hours =
+        # 12000/800 = $15.00/h. region 59 + NOC 63201 select the 245-posting,
+        # $24.10-wage fixture that trips Req 8.4 + Req 8.6.
+        claim_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        claim_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "b" * 64,
+            "employer_bn": "987654321RP0001",
+            "insurable_hours": "800",
+            "insurable_earnings": "12000",
+            "separation_date": "2024-03-15",
+            "claim_start_date": "2024-06-01",
+            "economic_region_code": "59",
+            "noc_code": "63201",
+            "received_at": now,
+        }
+        roe_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "b" * 64,
+            "employer_bn": "987654321RP0001",
+            "insurable_earnings": "12000",
+            "received_at": now,
+        }
+
+        producer = AIOKafkaProducer(bootstrap_servers=bootstrap)
+        await producer.start()
+        for event_type, payload in (
+            (CLAIM_RECEIVED, claim_payload),
+            (ROE_RECEIVED, roe_payload),
+        ):
+            envelope = {"event_type": event_type, "claim_id": claim_id, "payload": payload}
+            await producer.send_and_wait(
+                event_type,
+                value=json.dumps(envelope).encode("utf-8"),
+                key=claim_id.encode("utf-8"),
+            )
+
+        # ── Await the claim.scored event (bounded). ─────────────────────────
+        scored = None
+        deadline = asyncio.get_event_loop().time() + 30.0
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                msg = await asyncio.wait_for(scored_consumer.getone(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
+            event = json.loads(msg.value.decode("utf-8"))
+            if event.get("claim_id") == claim_id:
+                scored = event
+                break
+
+        # ── Assertions: ≥3 complete → determinate NON-AUTO_APPROVE. ─────────
+        dispatch = captured["dispatch"]
+        assert set(dispatch.engines_completed) == {
+            EngineType.REPETITIVE_PATTERN,
+            EngineType.HISTORY_INCONSISTENCY,
+            EngineType.REGIONAL_ANALYSIS,
+        }, dispatch.engines_completed
+        assert dispatch.completed_count >= MIN_ENGINES_REQUIRED
+        assert dispatch.indeterminate is False
+        assert captured["outcome"].fallback is False
+
+        # The Regional engine really produced ≥2 HIGH Indicators from the Job
+        # Bank fixture (proves the adapter signals reached the engine, not a
+        # DATA_UNAVAILABLE degrade).
+        from shared.models import EngineType as _ET, Severity as _Sev
+        regional_high = [
+            ind for ind in dispatch.indicators
+            if ind.engine == _ET.REGIONAL_ANALYSIS and ind.severity == _Sev.HIGH
+        ]
+        assert len(regional_high) >= 2, (
+            "expected ≥2 HIGH regional Indicators from the Job Bank fixture; "
+            f"got {[(i.algorithm, i.severity) for i in dispatch.indicators]}"
+        )
+
+        assert scored is not None, "no claim.scored event observed for the claim"
+        assert scored["claim_id"] == claim_id
+        # Real signals push the decision out of AUTO_APPROVE and INDETERMINATE.
+        assert scored["risk_decision"] in {
+            RiskDecision.FLAG_FOR_REVIEW.value,
+            RiskDecision.INVESTIGATE.value,
+        }, f"expected FLAG/INVESTIGATE with real signals, got {scored['risk_decision']}"
+        assert scored["risk_decision"] != RiskDecision.AUTO_APPROVE.value
+        assert scored["risk_decision"] != RiskDecision.INDETERMINATE.value
+        assert isinstance(scored["risk_score"], int)
+        assert scored["risk_score"] >= 30, scored["risk_score"]
+    finally:
+        if producer is not None:
+            await producer.stop()
+        if scored_consumer is not None:
+            await scored_consumer.stop()
+        if orchestrator_consumer is not None:
+            await orchestrator_consumer.stop()
+        if kafka_adapter is not None:
+            await kafka_adapter.stop()
+        if scoring_client is not None:
+            await scoring_client.aclose()
+        if kafka is not None:
+            kafka.stop()
+        for svc in services:
+            svc.stop()
+        os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
+        os.environ.pop("SERVICE_TOKEN", None)
