@@ -52,6 +52,14 @@ mocked seams, which caused the prior fragility).
    immutability`) to assert the trigger contract; the container runtime test now passes.
 5. (cbfd9be) **Slice 1 integration test — honest INDETERMINATE assertion (Req 2.5).** See
    "Slice 1" below. Removed an earlier six-from-one wiring hack.
+6. (Slice 2 — 6f65603, d88791b, 145133b) Portal-backend GCKey Bearer-forward + dev-auth
+   removal + 2 Req-22 backend fixes + dashboard integration test. See "Slice 2" below.
+7. (Slice 3 — 3f28cf2, 44ab31c, 03b87cb) Orchestrator↔engine data-flow fix; graduated
+   determinate (degrading → AUTO_APPROVE) integration test; history + regional engines
+   composed. See "Slice 3" below.
+8. (Slice 3 — 5eab64d, e58764f) Engine→adapter `SERVICE_TOKEN` auth fix (Req 19.7) + the
+   3 mock-data adapters composed; with-adapters determinate (→ FLAG/INVESTIGATE) integration
+   test over real transports. See "Slice 3" below.
 
 ## Key finding (scope correction)
 The prior "systemic integration failure" was over-stated. The real pipeline-core defect
@@ -129,10 +137,11 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
   - **REMOVED anti-pattern**: an earlier draft pointed all six engine URLs at the one engine
     to force ≥3 completions and a determinate score. That violated Req 2.3/2.5 and the
     regeneration anti-fragility rule (do not reshape wiring to force green). Do not reintroduce.
-  - **Evolution**: as engines are added (Slice 3+), this test graduates to assert the
-    determinate scored path (AUTO_APPROVE / FLAG_FOR_REVIEW / INVESTIGATE) once ≥3 engines
-    genuinely complete. The determinate scorer/publish path is already unit-covered in
-    `tests/integration/test_orchestrator_flow.py` (in-process fakes).
+  - **Evolution (DONE in Slice 3)**: now that engines 2 & 3 exist, this file carries
+    THREE integration tests over real transports — the original 1-engine INDETERMINATE,
+    plus two ≥3-engine determinate tests (degrading → AUTO_APPROVE, and with-adapters →
+    FLAG/INVESTIGATE). See "Slice 3" below. The determinate scorer/publish path is also
+    unit-covered in `tests/integration/test_orchestrator_flow.py` (in-process fakes).
 
 ### How to run the container-backed integration tests (macOS + Podman)
 - Venv: `.venv-itest` = `.venv-core` subset + `testcontainers[kafka]==4.9.0` (gitignored).
@@ -175,29 +184,76 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
     22.3 (disposition persisted, detail reflects it), 22.4 (real outcome.feedback Kafka
     event for CONFIRMED_FRAUD; none for NEEDS_FURTHER_REVIEW), 22.1 SSE frame.
   - Verified: portal unit 50 pass; full unit 1122 pass/22 skip; full integration 27 pass.
-  - NOTE: the SPA's own frontend integration against a live backend (browser E2E) and
-    task 30's podman-compose full claimant→investigator flow remain as a later checkpoint.
-- **Slice 3+**: add the other 5 engines one at a time (each with an integration test);
-  then the 8 adapters (mock-data fixtures locally); then LLM + graph services.
+  - NOTE: the SPA's own frontend integration against a live backend (browser E2E) remains a
+    later checkpoint. Task 30's determinate claimant→investigator flow is now demonstrable
+    (Slice 3 composed ≥3 engines + the mock-data adapters); a live browser walkthrough still
+    needs a human terminal (the agent is server-guarded) since the GCKey login has no local IdP.
+- **Slice 3 (in progress): cross the ≥3-engine threshold → DETERMINATE decision.**
+  Added **History Inconsistency** (8010) + **Regional Analysis** (8020) as engines 2 & 3
+  (lightest, standalone-complete engines — no Neo4j/LLM/GPU), so ≥3 engines complete and
+  the pipeline runs the Ensemble Scorer instead of degrading to INDETERMINATE (Req 2.2/2.5).
+  - **Data-flow fix (3f28cf2)**: `claim.received` is enriched (insurable hours/earnings,
+    separation/claim dates, economic_region_code, noc_code) and the orchestrator's
+    `_build_engine_request` forwards the superset + derives `tax_year` (year of separation),
+    `reference_month` (month before claim start), `insurable_hourly_earnings` (earnings/hours),
+    and sources `roe_earnings` from the `roe.received` payload. Without this the two engines
+    422'd; now they get exactly the fields Req 6.x / 8.x need.
+  - **Determinate path proven over real transports — TWO graduated integration tests**
+    (`tests/integration/test_slice1_end_to_end.py`):
+    1. **Degrading (44ab31c)** — 3 engines, NO adapters. All engines complete but degrade
+       (UNRESOLVED/DATA_UNAVAILABLE), so the heuristic scorer yields a low score →
+       **AUTO_APPROVE**. Proves the ≥3 → scorer → publish path honestly (no faked completion).
+    2. **With-adapters (e58764f)** — the 3 engines PLUS the CRA, Stats Canada, and Job Bank
+       mock-data adapters, all on real loopback HTTP + real Kafka + real GCKey JWKS auth.
+       With-signals inputs (region 59 / NOC 63201 / 2024-05 / \$15.00·h⁻¹) hit the Job Bank
+       fixture (245 postings > 200 → HIGH Req 8.4; \$24.10 median wage > 15×1.15 → HIGH Req 8.6).
+       Two real HIGH Indicators drive Risk_Score ≥ 30 → determinate **FLAG_FOR_REVIEW /
+       INVESTIGATE** (never AUTO_APPROVE, never INDETERMINATE). The test also asserts the
+       adapter serves the fixture WITH the INVESTIGATOR Bearer and 401s WITHOUT it (Req 19.7),
+       and that ≥2 HIGH regional Indicators actually reached the scorer.
+  - **Real gap found + fixed (5eab64d): engine→adapter authentication.** The two engines called
+    the auth-gated adapters (`require_role(INVESTIGATOR)`, Req 19.7) with NO `Authorization`
+    header, so every adapter call 401'd → the engines silently degraded to
+    UNRESOLVED/DATA_UNAVAILABLE. Fixed by mirroring the orchestrator's `ORCHESTRATOR_SERVICE_TOKEN`
+    pattern: both engines gained a `SERVICE_TOKEN` setting; their adapter clients attach
+    `Authorization: Bearer <token>` when it is set (empty in unit tests → no header, so all 109
+    engine unit tests are unaffected). `scripts/dev/gen-service-token.py` now also writes
+    `SERVICE_TOKEN` (the same INVESTIGATOR JWT) to `.env.dev-token`.
+  - **Compose (03b87cb, 5eab64d)**: history (8010) + regional (8020) engines and the CRA (8011),
+    Stats Canada (8017), Job Bank (8016) adapters are all composed. New Containerfiles for
+    stats-canada + job-bank mirror the cra-adapter pattern (`ENV VIRTUAL_ENV=/opt/app-root`,
+    non-root, no `USER 0`). mock-data is **bind-mounted read-only** in the dev compose rather
+    than baked into the images (`.containerignore` intentionally excludes `mock-data/` from
+    production images — prod adapters call the live APIs). Verified: both new adapter images
+    build + boot; `/healthz` reports mock mode; data endpoints 401 unauthenticated;
+    `podman-compose config` lints clean.
+- **Slice 3+ remaining**: add the other 3 engines one at a time (each with an integration
+  test) — geographic-anomaly, then the heavy-ML ones (fraud-ring GNN, document-forgery
+  LayoutLM); then LLM + graph services.
 - **Heavy-ML last**: Document Forgery (LayoutLM), Fraud Ring (GNN), LLM (Llama), Ensemble
   real models (XGBoost/IsolationForest) — need full stack / containers, not .venv-core.
 - **Final**: CP37-style k8s deploy + load (p99 ≤ 2000 ms) as the TRUE integration checkpoint.
 
 ## Task 30 — local full-stack compose (Option 1: the verified slice)
-`podman-compose.yml` now composes the SLICE built + verified so far (not all 18 services):
+`podman-compose.yml` composes the SLICE built + verified so far (not all 18 services):
 postgres (+ migrations 001–004 applied on init) + kafka/redis/otel, and the app services
-claim-intake, roe-adapter, pipeline-orchestrator, repetitive-pattern-engine, ensemble-scorer,
-portal-backend, claimant-portal — behind a Caddy single-origin proxy, with a local-dev JWKS +
-signed INVESTIGATOR service token for internal GCKey Bearer validation (Req 19.7 faithful; no
-bypass). `podman-compose config` lints clean; the engine + portal-backend images were verified
-to BUILD and BOOT.
+claim-intake, roe-adapter, pipeline-orchestrator, **three engines** (repetitive-pattern,
+history-inconsistency, regional-analysis), **three adapters** (cra, stats-canada, job-bank),
+ensemble-scorer, portal-backend, claimant-portal — behind a Caddy single-origin proxy, with a
+local-dev JWKS + signed INVESTIGATOR service token for internal GCKey Bearer validation
+(Req 19.7 faithful; no bypass). `podman-compose config` lints clean; the engine, adapter, and
+portal-backend images were verified to BUILD and BOOT.
 
-**Honest behaviour (hold until Slice 3):** only the Repetitive Pattern engine is composed, so a
-submitted claim correctly reaches the <3-engine **INDETERMINATE** decision (Req 2.5) — a claim
-flows intake → orchestrator → INDETERMINATE `claim.scored` → the investigator queue. The
-determinate scored flow (AUTO_APPROVE/FLAG/INVESTIGATE) is NOT yet walkable and that claim is
-deferred until Slice 3 adds ≥3 engines. The GCKey login flow is also not walkable locally (no
-IdP); the dashboard queue/detail/disposition read flow IS.
+**Honest behaviour (updated for Slice 3):** THREE engines are now composed, so a submitted claim
+crosses the ≥3-engine threshold and reaches a **DETERMINATE** decision (Req 2.2/2.5) — the claim
+flows intake → orchestrator → (repetitive + history + regional) → ensemble scorer → DETERMINATE
+`claim.scored` → the investigator queue. Because the three adapters are composed in mock mode and
+the engines forward their `SERVICE_TOKEN` (INVESTIGATOR Bearer) to them, a claim with the right
+region/NOC (e.g. region 59 / NOC 63201) surfaces real HIGH signals → **FLAG/INVESTIGATE**; a claim
+without such signals lands at **AUTO_APPROVE**. Both the degrading (AUTO_APPROVE) and with-adapters
+(FLAG/INVESTIGATE) determinate paths are covered by integration tests over real transports (see
+"Slice 3"). The GCKey login flow is still not walkable locally (no IdP); the dashboard
+queue/detail/disposition read flow IS.
 
 **Bring-up recipe (run in a human terminal — the agent is server-guarded):**
 1. `podman machine start` (ensure a reachable daemon).

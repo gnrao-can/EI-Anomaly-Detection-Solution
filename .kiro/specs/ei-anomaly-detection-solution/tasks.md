@@ -550,15 +550,21 @@ All open-source libraries are pinned to their latest stable versions as of Septe
 
 - [ ] 30. Checkpoint — Claimant Portal loads, submits a synthetic claim, and shows it in the Investigator Dashboard
   - Run `podman-compose up`; navigate the full claimant submission → investigator review flow manually. Ask the user if questions arise.
-  - STATUS (regen, Option 1): `podman-compose.yml` now composes the VERIFIED SLICE (postgres+migrations,
-    kafka/redis/otel, claim-intake, roe-adapter, pipeline-orchestrator, repetitive-pattern-engine,
-    ensemble-scorer, portal-backend, claimant-portal) behind a Caddy single-origin proxy, with a
-    local-dev JWKS + signed service token (Req 19.7). Images verified to build+boot; `podman-compose
-    config` clean. Bring-up recipe + honest scope in docs/regeneration/STATUS.md ("Task 30" section).
-  - NOT YET (deferred to Slice 3): with only 1 engine composed, the flow yields INDETERMINATE (Req 2.5),
-    so the DETERMINATE claimant→investigator walkthrough (AUTO_APPROVE/FLAG/INVESTIGATE) is not yet
-    demonstrable; GCKey login flow needs an IdP. Leave this box unchecked until Slice 3 adds ≥3 engines
-    and the manual determinate walkthrough is performed.
+  - STATUS (regen, Slice 3): `podman-compose.yml` now composes the VERIFIED SLICE incl. THREE engines
+    (repetitive-pattern, history-inconsistency, regional-analysis) + THREE mock-data adapters (cra,
+    stats-canada, job-bank) alongside postgres+migrations, kafka/redis/otel, claim-intake, roe-adapter,
+    pipeline-orchestrator, ensemble-scorer, portal-backend, claimant-portal — behind a Caddy
+    single-origin proxy, with a local-dev JWKS + signed INVESTIGATOR service token (Req 19.7; engines
+    forward it to the auth-gated adapters). Images verified to build+boot; `podman-compose config`
+    clean. Bring-up recipe + honest scope in docs/regeneration/STATUS.md ("Task 30" / "Slice 3").
+  - NOW DEMONSTRABLE: with ≥3 engines composed the flow reaches a DETERMINATE decision (Req 2.2/2.5).
+    Both determinate paths are covered by integration tests over real transports (real Kafka + HTTP +
+    GCKey JWKS): degrading → AUTO_APPROVE, and with-adapters real signals (region 59 / NOC 63201) →
+    FLAG/INVESTIGATE (`tests/integration/test_slice1_end_to_end.py`).
+  - STILL MANUAL (why this box stays unchecked): the checkpoint calls for a human to navigate the
+    browser claimant→investigator flow end-to-end via `podman-compose up`. That bring-up + browse must
+    run in a human terminal (the agent is server-guarded), and the GCKey LOGIN flow still needs an IdP
+    (not present locally). Check this box once the manual browser walkthrough is performed.
 
 ---
 
