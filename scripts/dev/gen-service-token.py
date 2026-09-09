@@ -47,6 +47,10 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
 _JWKS_DIR = os.path.join(_HERE, "jwks", ".well-known")
 _JWKS_PATH = os.path.join(_JWKS_DIR, "jwks.json")
+# The signing private key is persisted (gitignored) so scripts/dev/mint-token.py
+# can mint ADDITIONAL-role tokens (e.g. a CLAIMANT to submit a claim) that
+# validate against the SAME JWKS the running stack serves.
+_KEY_PATH = os.path.join(_HERE, "jwks", "signing-key.pem")
 _ENV_PATH = os.path.join(_REPO_ROOT, ".env.dev-token")
 _TTL_SECONDS = int(os.environ.get("DEV_TOKEN_TTL_SECONDS", str(24 * 60 * 60)))
 
@@ -90,6 +94,10 @@ def main() -> None:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     ).decode("ascii")
+    # Persist the signing key (0600, gitignored) for mint-token.py.
+    with open(_KEY_PATH, "w", encoding="utf-8") as handle:
+        handle.write(private_pem)
+    os.chmod(_KEY_PATH, 0o600)
     token = jwt.encode(claims, private_pem, algorithm="RS256", headers={"kid": _KID})
 
     with open(_ENV_PATH, "w", encoding="utf-8") as handle:
@@ -104,6 +112,7 @@ def main() -> None:
         handle.write(f"SERVICE_TOKEN={token}\n")
 
     print(f"Wrote JWKS  -> {os.path.relpath(_JWKS_PATH, _REPO_ROOT)}")
+    print(f"Wrote key   -> {os.path.relpath(_KEY_PATH, _REPO_ROOT)} (for mint-token.py)")
     print(f"Wrote token -> {os.path.relpath(_ENV_PATH, _REPO_ROOT)} "
           f"(INVESTIGATOR, ttl={_TTL_SECONDS}s)")
 
