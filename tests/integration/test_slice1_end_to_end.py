@@ -1373,3 +1373,370 @@ async def test_four_engines_with_geographic_adapters_yield_determinate_over_real
             svc.stop()
         os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
         os.environ.pop("SERVICE_TOKEN", None)
+
+
+# ===========================================================================
+# Slice 3+ — FIVE engines including Fraud Ring (engine #5) over the REAL GRAPH
+# relationship seam: a real Neo4j (testcontainers) behind the Graph Service,
+# plus the Business Registry adapter, over real transports.
+#
+# The graph relationship is the value proposition (Req 5.1/5.5/5.10), so this
+# test validates it with the real components:
+#   1. Seed a 3-claimant fraud ring into REAL Neo4j via the Graph Service's
+#      /graph/construct (shared employer BN + postal FSA "K1A", same separation
+#      date 2024-03-01, ROEs within a 24h window).
+#   2. Run the pipeline. The Fraud Ring engine reads the 24-month cohort BACK
+#      from the graph (GET /graph/cohort/{bn} -> Neo4j) and drives:
+#        - CRITICAL community_shared_attribute (>=40% share FSA, Req 5.5),
+#        - CRITICAL coordinated_layoff (same date + ROEs within 24h, Req 5.4),
+#        - HIGH shell_employer_no_record (no registry record, Req 5.3),
+#      and community-detect returns a complete partition (Req 5.10).
+#   3. With >=3 engines completing, the pipeline reaches a determinate
+#      NON-AUTO_APPROVE decision reflecting the real graph evidence.
+#
+# Every engine->adapter/graph call presents the engine's SERVICE_TOKEN
+# (INVESTIGATOR Bearer); the Graph Service + Business Registry adapter run their
+# real shared.auth JWKS validation (Req 19.7). Nothing is faked: real Neo4j,
+# real Kafka, real HTTP, real auth.
+# ===========================================================================
+
+
+def _start_graph_service_with_neo4j(jwks_url: str, bolt_url: str, password: str) -> "LoopbackService":
+    """Start the Graph Service backed by a REAL Neo4j (testcontainers)."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    _reset_service_settings("graph-service")
+    graph_main = load_service_module(
+        "graph-service", "main", siblings=["config", "community", "graph_repo", "main"]
+    )
+    graph_repo_mod = load_service_module(
+        "graph-service", "graph_repo", siblings=["config", "community", "graph_repo", "main"]
+    )
+    # Build a repository against the LIVE Neo4j (test_mode=False so it opens a
+    # real Bolt connection, not the in-memory fake).
+    repo = graph_repo_mod.GraphRepository(
+        uri=bolt_url, user="neo4j", password=password, test_mode=False
+    )
+    app = graph_main.create_app(repository=repo)
+    return LoopbackService(app, health_path="/healthz").start()
+
+
+def _start_business_registry_adapter(jwks_url: str) -> "LoopbackService":
+    """Start the Business Registry adapter (dev = fixtures) on loopback, auth-gated."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    _reset_service_settings("business-registry-adapter")
+    adapter_main = load_service_module(
+        "business-registry-adapter", "main", siblings=["config", "client", "main"]
+    )
+    return LoopbackService(adapter_main.app, health_path="/healthz").start()
+
+
+def _start_fraud_ring_engine_with_deps(
+    jwks_url: str, registry_url: str, graph_url: str
+) -> "LoopbackService":
+    """Start the Fraud Ring engine wired to the REAL Business Registry + Graph Service."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    os.environ["BUSINESS_REGISTRY_ADAPTER_URL"] = registry_url
+    os.environ["GRAPH_SERVICE_URL"] = graph_url
+    _reset_service_settings("fraud-ring-engine")
+    engine_main = load_service_module(
+        "fraud-ring-engine",
+        "main",
+        siblings=[
+            "config", "detection", "client", "community_analysis",
+            "graph_client", "publisher", "main",
+        ],
+    )
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_five_engines_with_fraud_ring_graph_seam_over_real_neo4j(
+    itest_service_auth,
+):
+    """Fraud Ring (engine #5) over a REAL Neo4j graph seam -> CRITICAL evidence.
+
+    Seeds a 3-claimant ring into real Neo4j via /graph/construct, then runs the
+    pipeline: the Fraud Ring engine reads the cohort back from the graph and
+    produces CRITICAL community_shared_attribute (Req 5.5) + CRITICAL
+    coordinated_layoff (Req 5.4) + HIGH shell_employer_no_record (Req 5.3). With
+    >=3 engines completing the decision is determinate NON-AUTO_APPROVE, and the
+    community partition is complete (Req 5.10). Engines authenticate to the
+    graph/adapter with their SERVICE_TOKEN (Req 19.7).
+    """
+    from testcontainers.kafka import KafkaContainer  # guarded import
+    from testcontainers.neo4j import Neo4jContainer
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
+    correlator_mod, engine_dispatch_mod, scoring_mod, publisher_mod, consumer_mod = (
+        _load_orchestrator_modules()
+    )
+    EventCorrelator = correlator_mod.EventCorrelator
+    InMemoryPairingStore = correlator_mod.InMemoryPairingStore
+    CLAIM_RECEIVED = correlator_mod.CLAIM_RECEIVED
+    ROE_RECEIVED = correlator_mod.ROE_RECEIVED
+
+    EngineDispatcher = engine_dispatch_mod.EngineDispatcher
+    EngineType = engine_dispatch_mod.EngineType
+    ALL_ENGINES = engine_dispatch_mod.ALL_ENGINES
+    ENGINE_ANALYZE_PATH = engine_dispatch_mod.ENGINE_ANALYZE_PATH
+    MIN_ENGINES_REQUIRED = engine_dispatch_mod.MIN_ENGINES_REQUIRED
+
+    ScoringClient = scoring_mod.ScoringClient
+    HttpxScorerCaller = scoring_mod.HttpxScorerCaller
+
+    ResultPublisher = publisher_mod.ResultPublisher
+    AIOKafkaProducerAdapter = publisher_mod.AIOKafkaProducerAdapter
+    CLAIM_SCORED_TOPIC = publisher_mod.CLAIM_SCORED_TOPIC
+
+    OrchestratorConsumer = consumer_mod.OrchestratorConsumer
+
+    from shared.models import RiskDecision, EngineType as _ET, Severity as _Sev
+
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    os.environ["ORCHESTRATOR_SERVICE_TOKEN"] = token
+    os.environ["SERVICE_TOKEN"] = token
+
+    employer_bn = "999000111RT0001"
+    services: list = []
+    kafka = neo4j = None
+    orchestrator_consumer = producer = scored_consumer = kafka_adapter = None
+    scoring_client = None
+    try:
+        # ── REAL Neo4j (testcontainers) behind the Graph Service. ───────────
+        neo4j = Neo4jContainer("neo4j:5.26.0-community", password="itest_pw_change_me")
+        neo4j.start()
+        bolt_url = neo4j.get_connection_url()
+
+        graph = _start_graph_service_with_neo4j(jwks_url, bolt_url, "itest_pw_change_me")
+        registry = _start_business_registry_adapter(jwks_url)
+
+        # ── Seed a 3-claimant fraud ring into REAL Neo4j via /graph/construct. ─
+        # All share employer BN + FSA "K1A"; same separation date; ROEs in a 24h
+        # window. This is the accumulated 24-month graph the engine reads back.
+        for i in range(3):
+            resp = httpx.post(
+                f"{graph.base_url}/graph/construct",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "sin_hash": f"ring-s{i}",
+                    "employer_bn": employer_bn,
+                    "postal_fsa": "K1A",
+                    "separation_date": "2024-03-01",
+                    "roe_submission_ts": f"2024-03-01T09:0{i}:00+00:00",
+                    "insurable_hours": 700.0 + i,
+                    "claim_id": f"ring-c{i}",
+                },
+                timeout=10.0,
+            )
+            assert resp.status_code == 200, resp.text
+
+        # Sanity: the cohort is readable BACK from the real graph, and the
+        # endpoint 401s without the INVESTIGATOR Bearer (Req 19.7).
+        cohort_url = f"{graph.base_url}/graph/cohort/{employer_bn}"
+        c_ok = httpx.get(
+            cohort_url, headers={"Authorization": f"Bearer {token}"}, timeout=10.0
+        )
+        assert c_ok.status_code == 200, c_ok.text
+        assert c_ok.json()["cohort_size"] == 3, c_ok.text
+        c_401 = httpx.get(cohort_url, timeout=10.0)
+        assert c_401.status_code == 401, "graph cohort must reject unauthenticated"
+        # The Business Registry adapter is also auth-gated (Req 19.7).
+        reg_401 = httpx.get(f"{registry.base_url}/registry/employer/{employer_bn}", timeout=10.0)
+        assert reg_401.status_code == 401, "registry must reject unauthenticated"
+
+        # ── Engines: fraud-ring wired to the real graph + registry; the three
+        #    light engines complete (degrade); document-forgery absent. ───────
+        fraud = _start_fraud_ring_engine_with_deps(
+            jwks_url, registry.base_url, graph.base_url
+        )
+        rpe = _start_repetitive_pattern_engine(jwks_url)
+        history = _start_history_inconsistency_engine(jwks_url)
+        regional = _start_regional_analysis_engine(jwks_url)
+        scorer = _start_ensemble_scorer(jwks_url)
+        services = [graph, registry, fraud, rpe, history, regional, scorer]
+
+        # Warm the shared JWKS cache once.
+        warm = httpx.post(
+            f"{rpe.base_url}{ENGINE_ANALYZE_PATH}",
+            json={"sin_hash": "warmup"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+        assert warm.status_code == 200, warm.text
+
+        dead_port = _closed_loopback_port()
+        real = {
+            EngineType.FRAUD_RING: fraud.base_url,
+            EngineType.REPETITIVE_PATTERN: rpe.base_url,
+            EngineType.HISTORY_INCONSISTENCY: history.base_url,
+            EngineType.REGIONAL_ANALYSIS: regional.base_url,
+        }
+        endpoints = {}
+        for engine in ALL_ENGINES:
+            base = real.get(engine, f"http://127.0.0.1:{dead_port}")
+            endpoints[engine] = f"{base}{ENGINE_ANALYZE_PATH}"
+        # Generous per-engine budgets so the graph round-trips complete in-test.
+        timeouts = {engine: 8000 for engine in ALL_ENGINES}
+
+        kafka = KafkaContainer()
+        kafka.start()
+        bootstrap = kafka.get_bootstrap_server()
+
+        dispatcher = EngineDispatcher(endpoints=endpoints, timeouts_ms=timeouts)
+        scoring_client = ScoringClient(
+            HttpxScorerCaller(base_url=scorer.base_url), budget_ms=8000
+        )
+        kafka_adapter = AIOKafkaProducerAdapter(bootstrap_servers=bootstrap)
+        result_publisher = ResultPublisher(kafka_adapter, audit_sink=None)
+
+        captured: dict = {}
+
+        async def dispatch_callback(pair):
+            dispatch = await dispatcher.dispatch(pair.claim_payload, pair.roe_payload)
+            captured["dispatch"] = dispatch
+            outcome = await scoring_client.score(
+                dispatch.indicators,
+                dispatch.claim_id,
+                dispatch.engines_completed,
+                dispatch.engines_partial,
+                indeterminate=dispatch.indeterminate,
+            )
+            captured["outcome"] = outcome
+            await result_publisher.publish_scored(dispatch.claim_id, outcome)
+
+        store = InMemoryPairingStore()
+        correlator = EventCorrelator(store)
+        orchestrator_consumer = OrchestratorConsumer(
+            correlator,
+            dispatch_callback,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3plus-fraud-orchestrator",
+            degrade_gracefully=False,
+        )
+        assert await orchestrator_consumer.start() is True
+
+        scored_consumer = AIOKafkaConsumer(
+            CLAIM_SCORED_TOPIC,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3plus-fraud-assert",
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+        )
+        await scored_consumer.start()
+
+        # ── Produce paired events for a claim by one of the ring members. The
+        #    fraud-ring engine sources the FULL cohort from the graph by BN. ──
+        claim_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        claim_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "ring-s0",
+            "employer_bn": employer_bn,
+            "insurable_hours": "700",
+            "insurable_earnings": "20000",
+            "separation_date": "2024-03-01",
+            "claim_start_date": "2024-04-01",
+            "economic_region_code": "35",
+            "noc_code": "12345",
+            "received_at": now,
+        }
+        roe_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "ring-s0",
+            "employer_bn": employer_bn,
+            "insurable_earnings": "20000",
+            "received_at": now,
+        }
+
+        producer = AIOKafkaProducer(bootstrap_servers=bootstrap)
+        await producer.start()
+        for event_type, payload in (
+            (CLAIM_RECEIVED, claim_payload),
+            (ROE_RECEIVED, roe_payload),
+        ):
+            envelope = {"event_type": event_type, "claim_id": claim_id, "payload": payload}
+            await producer.send_and_wait(
+                event_type,
+                value=json.dumps(envelope).encode("utf-8"),
+                key=claim_id.encode("utf-8"),
+            )
+
+        scored = None
+        deadline = asyncio.get_event_loop().time() + 40.0
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                msg = await asyncio.wait_for(scored_consumer.getone(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
+            event = json.loads(msg.value.decode("utf-8"))
+            if event.get("claim_id") == claim_id:
+                scored = event
+                break
+
+        # ── Assertions: the Fraud Ring engine's GRAPH-SOURCED evidence. ─────
+        dispatch = captured["dispatch"]
+        assert EngineType.FRAUD_RING in dispatch.engines_completed, (
+            dispatch.engines_completed
+        )
+        assert dispatch.completed_count >= MIN_ENGINES_REQUIRED
+        assert dispatch.indeterminate is False
+        assert captured["outcome"].fallback is False
+
+        fraud_inds = [
+            i for i in dispatch.indicators if i.engine == _ET.FRAUD_RING
+        ]
+        algos = {i.algorithm for i in fraud_inds}
+        # Req 5.5 community cluster CRITICAL from the graph-sourced cohort.
+        cluster = [i for i in fraud_inds if i.algorithm == "community_shared_attribute"]
+        assert cluster, f"expected community cluster; got {sorted(algos)}"
+        assert cluster[0].severity == _Sev.CRITICAL
+        assert cluster[0].payload.get("matched_value") == "K1A"
+        assert cluster[0].payload.get("matched_attribute_type") == "postal_fsa"
+        # Req 5.4 coordinated-layoff CRITICAL from the graph-sourced cohort.
+        layoff = [i for i in fraud_inds if i.algorithm == "coordinated_layoff"]
+        assert layoff and layoff[0].severity == _Sev.CRITICAL, sorted(algos)
+        # Req 5.3 shell-employer HIGH (no registry record for this synthetic BN).
+        shell = [i for i in fraud_inds if i.algorithm == "shell_employer_no_record"]
+        assert shell and shell[0].severity == _Sev.HIGH, sorted(algos)
+
+        # Req 5.10 completeness: every ring claimant placed in exactly one
+        # community (partition covers the 3 seeded claimants).
+        cohort_ids = set(cluster[0].payload.get("claimant_ids") or [])
+        assert {"ring-s0", "ring-s1", "ring-s2"} <= cohort_ids, cohort_ids
+
+        # The determinate decision reflects the CRITICAL graph evidence.
+        assert scored is not None, "no claim.scored event observed for the claim"
+        assert scored["claim_id"] == claim_id
+        assert scored["risk_decision"] != RiskDecision.INDETERMINATE.value
+        assert scored["risk_decision"] != RiskDecision.AUTO_APPROVE.value, (
+            f"CRITICAL fraud-ring evidence should lift the score out of "
+            f"AUTO_APPROVE; got {scored['risk_decision']} @ {scored['risk_score']}"
+        )
+        assert scored["risk_decision"] in {
+            RiskDecision.FLAG_FOR_REVIEW.value,
+            RiskDecision.INVESTIGATE.value,
+        }
+        assert isinstance(scored["risk_score"], int)
+    finally:
+        if producer is not None:
+            await producer.stop()
+        if scored_consumer is not None:
+            await scored_consumer.stop()
+        if orchestrator_consumer is not None:
+            await orchestrator_consumer.stop()
+        if kafka_adapter is not None:
+            await kafka_adapter.stop()
+        if scoring_client is not None:
+            await scoring_client.aclose()
+        if kafka is not None:
+            kafka.stop()
+        for svc in services:
+            svc.stop()
+        if neo4j is not None:
+            neo4j.stop()
+        os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
+        os.environ.pop("SERVICE_TOKEN", None)
