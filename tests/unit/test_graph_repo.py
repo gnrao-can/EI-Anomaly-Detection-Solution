@@ -238,3 +238,50 @@ async def test_verify_connectivity_true_for_fake_driver(repo):
 async def test_close_closes_driver(repo, driver):
     await repo.close()
     assert driver.closed is True
+
+
+# ===========================================================================
+# fetch_employer_cohort — graph-sourced cohort WITH attributes (Req 5.1)
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_fetch_employer_cohort_returns_edge_and_node_attrs(repo, driver):
+    """The cohort fetch returns per-member attrs from the edge + claimant node."""
+    # Seed a 3-claimant cohort sharing employer BN + FSA "K1A", same sep date.
+    for i, sh in enumerate(("s0", "s1", "s2")):
+        await repo.upsert_claimant(sh, {"postal_fsa": "K1A", "surname_hash": f"sur{i}"})
+        await repo.upsert_employer(BN, {})
+        await repo.add_employed_by_edge(
+            sh,
+            BN,
+            {
+                "separation_date": "2024-03-15",
+                "roe_submission_ts": f"2024-03-16T09:0{i}:00+00:00",
+                "insurable_hours": 700.0 + i,
+                "postal_fsa": "K1A",
+                "claim_id": f"claim-{i}",
+            },
+        )
+
+    cohort = await repo.fetch_employer_cohort([BN])
+    assert len(cohort) == 3
+    by_sin = {row["sin_hash"]: row for row in cohort}
+    assert set(by_sin) == {"s0", "s1", "s2"}
+    row0 = by_sin["s0"]
+    assert row0["employer_bn"] == BN
+    assert row0["postal_fsa"] == "K1A"          # from edge (or node fallback)
+    assert row0["surname_hash"] == "sur0"       # from claimant node
+    assert row0["insurable_hours"] == 700.0
+    assert row0["separation_date"] == "2024-03-15"
+    assert row0["roe_submission_ts"] == "2024-03-16T09:00:00+00:00"
+    assert row0["claim_id"] == "claim-0"
+
+
+@pytest.mark.asyncio
+async def test_fetch_employer_cohort_filters_by_bn(repo):
+    """Only the requested employer's edges are returned."""
+    await repo.add_employed_by_edge("s0", BN, {"postal_fsa": "K1A"})
+    await repo.add_employed_by_edge("s9", "999999999RT0001", {"postal_fsa": "V6B"})
+    cohort = await repo.fetch_employer_cohort([BN])
+    assert [r["sin_hash"] for r in cohort] == ["s0"]

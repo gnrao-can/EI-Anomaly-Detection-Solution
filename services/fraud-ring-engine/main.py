@@ -217,6 +217,59 @@ def _parse_graph_cohort(raw_cohort: Any) -> list[CohortClaimant]:
     return cohort
 
 
+def _graph_members_to_cohort(members: list[dict[str, Any]]) -> list[CohortMember]:
+    """Build coordinated-layoff ``CohortMember`` records from graph cohort rows.
+
+    Each graph row carries ``sin_hash``, ``separation_date`` and
+    ``roe_submission_ts`` (stored on the EMPLOYED_BY edge via ``/graph/construct``).
+    Rows missing either required date are skipped (they cannot participate in
+    the same-date / rolling-window coordinated-layoff test, Req 5.4).
+    """
+    cohort: list[CohortMember] = []
+    for raw in members or []:
+        sep = raw.get("separation_date")
+        roe = raw.get("roe_submission_ts")
+        if not sep or not roe:
+            continue
+        try:
+            separation_date = date.fromisoformat(str(sep)[:10])
+            roe_ts = datetime.fromisoformat(str(roe))
+        except (ValueError, TypeError):
+            continue
+        cohort.append(
+            CohortMember(
+                sin_hash=str(raw.get("sin_hash", "")),
+                separation_date=separation_date,
+                roe_submission_ts=roe_ts,
+                claim_id=raw.get("claim_id"),
+            )
+        )
+    return cohort
+
+
+def _graph_members_to_graph_cohort(
+    members: list[dict[str, Any]],
+) -> list[CohortClaimant]:
+    """Build community-cluster ``CohortClaimant`` records from graph cohort rows.
+
+    Carries the shared-attribute (``postal_fsa`` / ``surname_hash``) and
+    hours-band (``insurable_hours``) attributes stored on the graph
+    (Req 5.5/5.6).
+    """
+    cohort: list[CohortClaimant] = []
+    for raw in members or []:
+        cohort.append(
+            CohortClaimant(
+                sin_hash=str(raw.get("sin_hash", "")),
+                postal_fsa=raw.get("postal_fsa"),
+                surname_hash=raw.get("surname_hash"),
+                insurable_hours=_to_float(raw.get("insurable_hours")),
+                claim_id=raw.get("claim_id"),
+            )
+        )
+    return cohort
+
+
 def _budget_start(payload: dict[str, Any]) -> float:
     """Return the monotonic reference for the 800 ms budget.
 
@@ -329,10 +382,33 @@ async def analyze(
     else:
         checks_skipped.append("shell_employer:NO_REGISTRY_CLIENT")
 
+    # ── Graph-sourced cohort (Req 5.1): the employer's 24-month cohort lives in
+    #    the graph, NOT on a single claim event. When an employer_bn + Graph
+    #    Service client are present we fetch the cohort (with per-member
+    #    attributes) from the graph and use it to drive BOTH the coordinated-
+    #    layoff (Req 5.4) and the community-cluster / hours-band (Req 5.5/5.6)
+    #    checks. A payload-supplied cohort/graph_cohort remains the fallback when
+    #    the graph is unavailable (Req 5.9 degrade-gracefully). ──
+    graph_client: Optional[GraphServiceClient] = getattr(
+        app.state, "graph_client", None
+    )
+    graph_cohort_rows: list[dict[str, Any]] = []
+    graph_cohort_source = False
+    if graph_client is not None and employer_bn:
+        fetch = await graph_client.fetch_cohort(str(employer_bn))
+        if fetch.status is GraphCallStatus.OK and fetch.members:
+            graph_cohort_rows = fetch.members
+            graph_cohort_source = True
+
     # ── Coordinated-layoff detection (Req 5.3, 5.4) ──
     cohort: list[CohortMember] = []
     if payload.get("cohort") is not None:
         cohort = _parse_cohort(payload.get("cohort"))
+        cohort_available = True
+    elif graph_cohort_source:
+        # Cohort sourced from the graph (Req 5.1): build the coordinated-layoff
+        # members from the graph edges' separation_date + roe_submission_ts.
+        cohort = _graph_members_to_cohort(graph_cohort_rows)
         cohort_available = True
     else:
         cohort_source: Optional[CohortSource] = getattr(
@@ -364,9 +440,13 @@ async def analyze(
         checks_skipped.append("coordinated_layoff:COHORT_UNAVAILABLE")
 
     # ── Community detection + hours-band analysis (Req 5.5, 5.6, 5.7) ──
-    graph_cohort: list[CohortClaimant] = _parse_graph_cohort(
-        payload.get("graph_cohort")
-    )
+    # Prefer the graph-sourced cohort (Req 5.1); fall back to a payload cohort.
+    if graph_cohort_source:
+        graph_cohort: list[CohortClaimant] = _graph_members_to_graph_cohort(
+            graph_cohort_rows
+        )
+    else:
+        graph_cohort = _parse_graph_cohort(payload.get("graph_cohort"))
     num_communities = 0
 
     if _budget_exceeded(budget_start, settings.engine_budget_ms):
@@ -378,9 +458,6 @@ async def analyze(
         # Graph Service when a client is wired. Both calls degrade gracefully —
         # a Graph Service outage skips only the community-partition evidence, not
         # the (self-contained) cohort attribute/hours analysis.
-        graph_client: Optional[GraphServiceClient] = getattr(
-            app.state, "graph_client", None
-        )
         if graph_client is not None and employer_bn:
             await graph_client.construct(
                 {
@@ -390,9 +467,21 @@ async def analyze(
                     "claim_id": claim_id,
                 }
             )
-            if graph_cohort:
+            # Partition the cohort into communities (Req 5.5/5.10). When the
+            # cohort was sourced from the graph, ask the Graph Service to read
+            # the employer's edges from Neo4j (employer_bns mode) so the
+            # partition reflects the accumulated 24-month graph; otherwise use
+            # the payload edges the engine holds in memory.
+            if graph_cohort_source:
+                community = await graph_client.community_detect(
+                    employer_bns=[str(employer_bn)]
+                )
+            elif graph_cohort:
                 edges = [(m.sin_hash, str(employer_bn)) for m in graph_cohort]
                 community = await graph_client.community_detect(edges=edges)
+            else:
+                community = None
+            if community is not None:
                 if community.status is GraphCallStatus.OK:
                     num_communities = community.num_communities
                 else:
@@ -463,6 +552,7 @@ async def analyze(
             "dispositions": dispositions,
             "cohort_size": len(cohort),
             "graph_cohort_size": len(graph_cohort),
+            "graph_cohort_source": graph_cohort_source,
             "num_communities": num_communities,
             "budget_ms": settings.engine_budget_ms,
             "budget_exceeded": budget_exceeded,

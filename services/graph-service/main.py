@@ -104,6 +104,25 @@ class CommunityDetectResponse(BaseModel):
     num_communities: int
 
 
+class CohortMemberOut(BaseModel):
+    """One employer-cohort member with the attributes the Fraud Ring Engine needs."""
+
+    sin_hash: str
+    employer_bn: Optional[str] = None
+    postal_fsa: Optional[str] = None
+    surname_hash: Optional[str] = None
+    insurable_hours: Optional[float] = None
+    separation_date: Optional[str] = None
+    roe_submission_ts: Optional[str] = None
+    claim_id: Optional[str] = None
+
+
+class CohortResponse(BaseModel):
+    employer_bn: str
+    cohort_size: int
+    members: list[CohortMemberOut]
+
+
 # ===========================================================================
 # Application factory
 # ===========================================================================
@@ -206,6 +225,29 @@ def create_app(repository: GraphRepository | None = None) -> FastAPI:
         return CommunityDetectResponse(
             partition={str(k): v for k, v in partition.items()},
             num_communities=num_communities,
+        )
+
+    @app.get("/graph/cohort/{employer_bn}", response_model=CohortResponse)
+    async def employer_cohort(
+        employer_bn: str,
+        request: Request,
+        _user: dict[str, Any] = Depends(require_role(Role.INVESTIGATOR)),
+    ) -> CohortResponse:
+        """Return the employer's 24-month claimant cohort WITH attributes.
+
+        The Fraud Ring Engine reads this graph-sourced cohort (Req 5.1) to drive
+        its coordinated-layoff (Req 5.4) and shared-attribute / hours-band
+        (Req 5.5/5.6) checks — the cohort comes from the accumulated graph, not
+        from a single claim event. The member attributes were stored on
+        ``/graph/construct`` (EMPLOYED_BY edge + Claimant node).
+        """
+        repo = _repo(request)
+        rows = await repo.fetch_employer_cohort([employer_bn])
+        members = [CohortMemberOut(**row) for row in rows]
+        return CohortResponse(
+            employer_bn=employer_bn,
+            cohort_size=len(members),
+            members=members,
         )
 
     @app.get("/healthz")

@@ -80,6 +80,26 @@ WHERE $bns IS NULL OR size($bns) = 0 OR e.bn IN $bns
 RETURN c.sin_hash AS claimant_id, e.bn AS employer_id
 """.strip()
 
+#: Fetch the employer cohort WITH the per-member attributes the Fraud Ring
+#: Engine's coordinated-layoff (Req 5.4) and shared-attribute/hours-band
+#: (Req 5.5/5.6) checks consume. The claimant/edge attributes were stored on
+#: ``/graph/construct`` (EMPLOYED_BY edge + Claimant node). This is how the
+#: engine sources the 24-month cohort FROM THE GRAPH (Req 5.1) rather than from
+#: the single claim event. ``postal_fsa`` prefers the edge value, falling back
+#: to the Claimant node's ``postal_fsa``.
+FETCH_EMPLOYER_COHORT_CYPHER = """
+MATCH (c:Claimant)-[r:EMPLOYED_BY]->(e:Employer)
+WHERE $bns IS NULL OR size($bns) = 0 OR e.bn IN $bns
+RETURN c.sin_hash AS sin_hash,
+       e.bn AS employer_bn,
+       coalesce(r.postal_fsa, c.postal_fsa) AS postal_fsa,
+       c.surname_hash AS surname_hash,
+       r.insurable_hours AS insurable_hours,
+       r.separation_date AS separation_date,
+       r.roe_submission_ts AS roe_submission_ts,
+       r.claim_id AS claim_id
+""".strip()
+
 #: Trivial connectivity probe used by the health check.
 HEALTHCHECK_CYPHER = "RETURN 1 AS ok"
 
@@ -144,6 +164,28 @@ class _FakeSession:
                 if bns and bn not in bns:
                     continue
                 records.append({"claimant_id": sin_hash, "employer_id": bn})
+            return _FakeResult(records)
+
+        if query == FETCH_EMPLOYER_COHORT_CYPHER:
+            bns = params.get("bns")
+            records = []
+            for (sin_hash, bn), edge_attrs in self._driver.edges.items():
+                if bns and bn not in bns:
+                    continue
+                node_attrs = self._driver.claimants.get(sin_hash, {})
+                records.append(
+                    {
+                        "sin_hash": sin_hash,
+                        "employer_bn": bn,
+                        "postal_fsa": edge_attrs.get("postal_fsa")
+                        or node_attrs.get("postal_fsa"),
+                        "surname_hash": node_attrs.get("surname_hash"),
+                        "insurable_hours": edge_attrs.get("insurable_hours"),
+                        "separation_date": edge_attrs.get("separation_date"),
+                        "roe_submission_ts": edge_attrs.get("roe_submission_ts"),
+                        "claim_id": edge_attrs.get("claim_id"),
+                    }
+                )
             return _FakeResult(records)
 
         if query == HEALTHCHECK_CYPHER:
@@ -329,6 +371,26 @@ class GraphRepository:
             rows = await result.data()
         return [(row["claimant_id"], row["employer_id"]) for row in rows]
 
+    async def fetch_employer_cohort(
+        self, bns: list[str] | None = None
+    ) -> list[dict[str, Any]]:
+        """Fetch the employer cohort WITH per-member attributes from the graph.
+
+        Returns one row per EMPLOYED_BY edge for the requested employer BN(s),
+        carrying the attributes the Fraud Ring Engine's coordinated-layoff
+        (Req 5.4) and shared-attribute / hours-band (Req 5.5/5.6) checks need:
+        ``sin_hash, employer_bn, postal_fsa, surname_hash, insurable_hours,
+        separation_date, roe_submission_ts, claim_id``. This is the graph-sourced
+        24-month cohort (Req 5.1) — the values were stored on ``/graph/construct``.
+
+        Works against a live Neo4j or the in-memory :class:`FakeAsyncDriver`.
+        """
+        params = {"bns": list(bns) if bns else None}
+        async with self._driver.session(database=self._database) as session:
+            result = await session.run(FETCH_EMPLOYER_COHORT_CYPHER, parameters=params)
+            rows = await result.data()
+        return [dict(row) for row in rows]
+
     # ------------------------------------------------------------------
     # Health / lifecycle
     # ------------------------------------------------------------------
@@ -376,5 +438,6 @@ __all__ = [
     "UPSERT_EMPLOYER_CYPHER",
     "ADD_EMPLOYED_BY_EDGE_CYPHER",
     "FETCH_SHARED_EMPLOYER_EDGES_CYPHER",
+    "FETCH_EMPLOYER_COHORT_CYPHER",
     "HEALTHCHECK_CYPHER",
 ]

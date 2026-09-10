@@ -70,6 +70,21 @@ class CommunityResult:
     num_communities: int = 0
 
 
+@dataclass
+class CohortFetchResult:
+    """Result of a ``GET /graph/cohort/{employer_bn}`` call.
+
+    ``members`` is the list of raw cohort-member dicts as returned by the Graph
+    Service (each carrying ``sin_hash, postal_fsa, surname_hash,
+    insurable_hours, separation_date, roe_submission_ts, claim_id``). On any
+    Graph Service failure the status is ``UNAVAILABLE`` and ``members`` is empty
+    so the engine can fall back to any payload-supplied cohort.
+    """
+
+    status: GraphCallStatus
+    members: list[dict[str, Any]] = field(default_factory=list)
+
+
 # ===========================================================================
 # Graph Service client
 # ===========================================================================
@@ -174,6 +189,39 @@ class GraphServiceClient:
             num_communities=num_communities,
         )
 
+    async def fetch_cohort(self, employer_bn: str) -> CohortFetchResult:
+        """Fetch the employer's 24-month cohort WITH attributes from the graph.
+
+        Calls ``GET /graph/cohort/{employer_bn}`` (Graph Service reads the
+        cohort from Neo4j, Req 5.1). The returned members drive the engine's
+        coordinated-layoff (Req 5.4) and shared-attribute / hours-band
+        (Req 5.5/5.6) checks. Never raises: any failure yields an
+        ``UNAVAILABLE`` result so the engine can fall back to a payload cohort.
+        """
+        url = f"{self._base_url}/graph/cohort/{employer_bn}"
+        try:
+            resp = await self._http.get(
+                url, timeout=self._timeout, headers=self._headers
+            )
+        except Exception:  # noqa: BLE001 - transport failure -> UNAVAILABLE
+            return CohortFetchResult(status=GraphCallStatus.UNAVAILABLE)
+
+        if not _ok(resp):
+            return CohortFetchResult(status=GraphCallStatus.UNAVAILABLE)
+        try:
+            body = resp.json()
+        except Exception:  # noqa: BLE001
+            return CohortFetchResult(status=GraphCallStatus.UNAVAILABLE)
+
+        if not isinstance(body, dict):
+            return CohortFetchResult(status=GraphCallStatus.UNAVAILABLE)
+
+        raw_members = body.get("members")
+        members = [m for m in raw_members if isinstance(m, dict)] if isinstance(
+            raw_members, list
+        ) else []
+        return CohortFetchResult(status=GraphCallStatus.OK, members=members)
+
 
 def _ok(resp: Any) -> bool:
     """True when the response status code is 2xx (defaults to 200 if absent)."""
@@ -185,5 +233,6 @@ __all__ = [
     "GraphCallStatus",
     "ConstructResult",
     "CommunityResult",
+    "CohortFetchResult",
     "GraphServiceClient",
 ]
