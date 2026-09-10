@@ -73,7 +73,46 @@ def get_explanation_generator():  # -> ExplanationGenerator (lazy)
     )
 
 
+def _warm_backends() -> None:
+    """Force-build the lazy singletons so the FIRST real request is not cold.
+
+    The similarity backend (sentence-transformers embeddings + a Chroma vector
+    store) and the LangChain chain build on first use. That cold build can take
+    several seconds — longer than the History engine's 10 s narrative budget
+    (Req 6.7) — so the first ``/llm/narrative-contradiction`` call would
+    otherwise degrade to NARRATIVE_ANALYSIS_TIMEOUT while the model loads.
+    Warming here (off the request path) keeps that first classification fast.
+    Best-effort: any failure is swallowed so the service still serves (the
+    endpoints will just build lazily on demand, as before).
+    """
+    try:
+        get_similarity_scorer()
+        get_chain()
+    except Exception:  # noqa: BLE001 - warm-up must never crash the service
+        pass
+
+
 if _HAS_FASTAPI:
+
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def lifespan(app):  # noqa: ANN001 - FastAPI lifespan
+        """Kick off a BACKGROUND warm-up of the model backends on startup.
+
+        Runs in a worker thread so it never blocks startup or the ``/healthz``
+        liveness probe (which must answer immediately, per the module note).
+        By the time the first real classification request arrives the singletons
+        are typically already built, avoiding the cold-start timeout (Req 6.7).
+        """
+        import asyncio
+
+        task = asyncio.create_task(asyncio.to_thread(_warm_backends))
+        try:
+            yield
+        finally:
+            if not task.done():
+                task.cancel()
 
     class SimilarityRequest(BaseModel):
         """Request body for ``POST /llm/similarity``."""
@@ -147,6 +186,7 @@ if _HAS_FASTAPI:
         title="EI-ADS LLM Service",
         description="Narrative similarity and bilingual explanation generation.",
         version="0.1.0",
+        lifespan=lifespan,
     )
 
     # --- Prometheus metrics + /metrics endpoint (task 31.1) ---
