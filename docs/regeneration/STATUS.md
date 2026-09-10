@@ -60,6 +60,8 @@ mocked seams, which caused the prior fragility).
 8. (Slice 3 — 5eab64d, e58764f) Engine→adapter `SERVICE_TOKEN` auth fix (Req 19.7) + the
    3 mock-data adapters composed; with-adapters determinate (→ FLAG/INVESTIGATE) integration
    test over real transports. See "Slice 3" below.
+9. (Slice 3+ — e1f0153, b2c3209, cf605c5, 1ee097e) **Geographic Anomaly added as engine #4**
+   with its GeoNames + MVR + CBSA adapters. See "Slice 3+ — Geographic" below.
 
 ## Key finding (scope correction)
 The prior "systemic integration failure" was over-stated. The real pipeline-core defect
@@ -153,7 +155,8 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
   `TESTCONTAINERS_RYUK_DISABLED=true`, `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`. Ryuk is
   disabled because it is unreliable under Podman; testcontainers' own context managers clean up.
 - Run: `scripts/itest-env.sh .venv-itest/bin/python -m pytest tests/integration -q`
-  (last verified: **26 passed** with the runtime up; the suite skips cleanly without a daemon).
+  (last verified: **30 passed** with the runtime up — incl. the Slice 3+ Geographic 4-engine
+  test; the suite skips cleanly without a daemon).
 - Server-guard: the agent cannot launch the daemon/servers; `podman machine start` and any
   live service bring-up must be run in a human terminal. testcontainers containers are
   started/stopped WITHIN the pytest process, so the agent can drive the tests once the
@@ -227,9 +230,80 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
     production images — prod adapters call the live APIs). Verified: both new adapter images
     build + boot; `/healthz` reports mock mode; data endpoints 401 unauthenticated;
     `podman-compose config` lints clean.
-- **Slice 3+ remaining**: add the other 3 engines one at a time (each with an integration
-  test) — geographic-anomaly, then the heavy-ML ones (fraud-ring GNN, document-forgery
-  LayoutLM); then LLM + graph services.
+- **Slice 3+ — Geographic (DONE)**: **Geographic Anomaly is now engine #4** (8022), composed
+  with its three adapters — GeoNames (8110), MVR (8015), CBSA (8013). Four engines now reach
+  a DETERMINATE decision (Req 2.2). The engine is spec-faithful and standalone-complete
+  (Req 4.1–4.10); the work here was the wiring layer + two data-flow gaps, mirroring the
+  engines 2 & 3 pattern. Details:
+  - **Engine→adapter auth (e1f0153, gap #1 — same class as 5eab64d).** The engine's GeoNames/
+    MVR/CBSA clients sent NO `Authorization` header, but all three adapters are auth-gated
+    (`require_role(INVESTIGATOR)`, Req 19.7) → every call would 401 and the engine would
+    silently degrade (RESOLUTION_FAILED / UNKNOWN / no absence). Added a `service_token`
+    setting + a `bearer_token` param on each client (attaches `Authorization: Bearer` when
+    set; empty in unit tests → no header, so the engine unit tests are unaffected). Wired from
+    `settings.service_token` in the lifespan. Client-level auth tests (httpx MockTransport)
+    assert the header is present with a token and absent without one.
+  - **Orchestrator data-flow (b2c3209, gap #2 — geographic analog of 3f28cf2).** The engine's
+    `AnalyzeRequest` REQUIRES `residential_postal_code` + `employer_work_location` (a 422
+    otherwise); both are already on `claim.received` (`shared.models.Claim`) but the
+    orchestrator's `_build_engine_request` pass-through list omitted them. Added both.
+  - **Province derivation (b2c3209, Option A — decided with the owner, Req 15.1).**
+    `claim.received` carries only the residential FSA (Protected B minimisation), NOT a
+    province, but the engine keys its MVR (Req 4.3) and CBSA (Req 4.9) lookups on province.
+    New `services/geographic-anomaly-engine/province.py` derives the province from the FSA's
+    first letter (standard Canada Post convention; `X`→`NT`) when no explicit
+    `residential_province` is supplied — the engine owns the address→province step (Req 15.1),
+    so NO new event field / schema migration. Unmappable FSA → `""` (adapters treat as
+    unknown; no province fabricated). Unit-tested exhaustively (all 18 first-letter mappings,
+    unused letters D/F/I/O/Q/U/W/Z, case/whitespace, explicit-wins) + an endpoint test proving
+    the derived province reaches the MVR lookup and drives the HIGH Indicator.
+  - **/healthz 503-when-GeoNames-None concern (RESOLVED by grounding — no code change).** The
+    earlier worry was a false alarm: the lifespan builds the GeoNames client unconditionally
+    (only `None` if `httpx` import fails, which cannot happen in a container), so `/healthz`
+    returns 200 in compose — identical to the History engine's pattern. And even if GeoNames
+    resolution genuinely fails at request time, the engine returns HTTP 200 with a MEDIUM
+    `RESOLUTION_FAILED` Indicator (Req 4.2), which counts as a COMPLETED engine for the ≥3
+    minimum. So no special gating handling is needed; `/healthz` is left as-is (matches
+    History, not the Regional engine's unconditional-200 style).
+  - **Compose (cf605c5)**: engine #4 + the three adapters, mirroring the SERVICE_TOKEN/
+    env_file/`GCKEY_JWKS_URL` pattern; mock-data bind-mounted read-only (`.containerignore`
+    excludes `mock-data/` from prod images). Two PRE-EXISTING geonames-adapter bugs found +
+    fixed while verifying the build: (1) its Containerfile `COPY mock-data/geonames/` conflicted
+    with `.containerignore` → build failed (removed the COPY; the dump is bind-mounted in dev
+    like the other adapters); (2) `config.py` `_REPO_ROOT = Path(__file__).parents[2]` crashed
+    with `IndexError` in the flattened `/app` image (guarded with a CWD-relative fallback,
+    overridden by `GEONAMES_LOCAL_DUMP_PATH` in dev). Verified LIVE over Podman: all four
+    images build + boot; `/healthz` 200; each adapter 401s unauthenticated and 200s with the
+    INVESTIGATOR Bearer; `POST /engine/analyze` for A1C (St. John's, NL) → M5H (Toronto),
+    2108.6856 km, drove the FSA-derived province NL through the MVR adapter to a real HIGH
+    no-vehicle Indicator (Req 4.3). `podman-compose config` lints clean.
+  - **Integration test over real transports (1ee097e)** — `test_four_engines_with_geographic_
+    adapters_yield_determinate_over_real_transports` in `tests/integration/test_slice1_end_to_
+    end.py`: the geographic engine + GeoNames/MVR/CBSA adapters (real loopback HTTP + real
+    Kafka + real GCKey JWKS) alongside the other three engines. Asserts all four complete
+    (≥3 → determinate, not INDETERMINATE); the real scorer runs (no fallback); a HIGH
+    `GEOGRAPHIC_ANOMALY` `transport_implausibility_vehicle` Indicator with `province=NL` reached
+    the dispatch/scorer (proves the engine→GeoNames→MVR chain, not a degrade); the MVR adapter
+    401s WITHOUT the Bearer and serves the NL=NONE fixture WITH it (Req 19.7); the decision is
+    determinate and out of AUTO_APPROVE (a single HIGH → score ≥ 30, Req 9.2). Verified LIVE:
+    full integration suite **30 passed** (was 26 pre-Slice-3).
+  - **GROUNDING NOTE — transit (Req 4.4) + economic (Req 4.5) signals are currently UNFED.**
+    The GeoNames Adapter (Req 14) implements only `resolve` + `compute-distance`; there is NO
+    transit-route or fare endpoint, and `claim.received` carries no `transit_route_exists` /
+    `transport_mode_costs` / `weekly_benefit_rate` fields. The engine ACCEPTS those inputs and
+    handles them correctly (e.g. it emits the Req 4.6 MEDIUM "transport cost data unavailable"
+    when no fare data is present — observed in the live run), but nothing in the current stack
+    SOURCES them. This is a real pre-existing implementation-vs-design gap, deliberately NOT
+    papered over: the reachable real HIGH signal today is Req 4.3 (no vehicle > 100 km) via MVR.
+    A future step should add a fare/transit data source (or event fields) to feed 4.4/4.5.
+  - **Harness note**: the engine's `analyze()` does NOT rebuild adapter clients when
+    `app.state.{geonames,mvr,cbsa}` is `None` (unlike History/Regional's `_get_client`); the
+    lifespan builds them only when the attribute is ABSENT. The integration helper therefore
+    `delattr`s the app.state clients (not sets them to `None`) so the lifespan rebuilds them
+    against the test URLs + SERVICE_TOKEN. (Left as a note; not a production defect — the
+    lifespan path is correct for a normally-started service.)
+- **Slice 3+ remaining**: the two heavy-ML engines (fraud-ring GNN, document-forgery
+  LayoutLM), one at a time each with an integration test; then LLM + graph services.
 - **Heavy-ML last**: Document Forgery (LayoutLM), Fraud Ring (GNN), LLM (Llama), Ensemble
   real models (XGBoost/IsolationForest) — need full stack / containers, not .venv-core.
 - **Final**: CP37-style k8s deploy + load (p99 ≤ 2000 ms) as the TRUE integration checkpoint.
@@ -237,8 +311,9 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
 ## Task 30 — local full-stack compose (Option 1: the verified slice)
 `podman-compose.yml` composes the SLICE built + verified so far (not all 18 services):
 postgres (+ migrations 001–004 applied on init) + kafka/redis/otel, and the app services
-claim-intake, roe-adapter, pipeline-orchestrator, **three engines** (repetitive-pattern,
-history-inconsistency, regional-analysis), **three adapters** (cra, stats-canada, job-bank),
+claim-intake, roe-adapter, pipeline-orchestrator, **four engines** (repetitive-pattern,
+history-inconsistency, regional-analysis, geographic-anomaly), **six adapters** (cra,
+stats-canada, job-bank, geonames, mvr, cbsa),
 ensemble-scorer, portal-backend, claimant-portal — behind a Caddy single-origin proxy, with a
 local-dev JWKS + signed INVESTIGATOR service token for internal GCKey Bearer validation
 (Req 19.7 faithful; no bypass). `podman-compose config` lints clean; the engine, adapter, and
