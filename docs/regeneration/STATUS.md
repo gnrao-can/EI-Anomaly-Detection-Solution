@@ -62,6 +62,9 @@ mocked seams, which caused the prior fragility).
    test over real transports. See "Slice 3" below.
 9. (Slice 3+ — e1f0153, b2c3209, cf605c5, 1ee097e) **Geographic Anomaly added as engine #4**
    with its GeoNames + MVR + CBSA adapters. See "Slice 3+ — Geographic" below.
+10. (Slice 3+ — db95b7f, ef32bff, b12337d, f81fe37) **Fraud Ring added as engine #5** over the
+    REAL graph relationship seam (Neo4j + Graph Service + Business Registry adapter). See
+    "Slice 3+ — Fraud Ring" below.
 
 ## Key finding (scope correction)
 The prior "systemic integration failure" was over-stated. The real pipeline-core defect
@@ -155,8 +158,9 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
   `TESTCONTAINERS_RYUK_DISABLED=true`, `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`. Ryuk is
   disabled because it is unreliable under Podman; testcontainers' own context managers clean up.
 - Run: `scripts/itest-env.sh .venv-itest/bin/python -m pytest tests/integration -q`
-  (last verified: **30 passed** with the runtime up — incl. the Slice 3+ Geographic 4-engine
-  test; the suite skips cleanly without a daemon).
+  (last verified: **31 passed** with the runtime up — incl. the Slice 3+ Geographic 4-engine
+  test and the Fraud Ring 5-engine test over REAL Neo4j; the suite skips cleanly without a
+  daemon).
 - Server-guard: the agent cannot launch the daemon/servers; `podman machine start` and any
   live service bring-up must be run in a human terminal. testcontainers containers are
   started/stopped WITHIN the pytest process, so the agent can drive the tests once the
@@ -302,8 +306,77 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
     `delattr`s the app.state clients (not sets them to `None`) so the lifespan rebuilds them
     against the test URLs + SERVICE_TOKEN. (Left as a note; not a production defect — the
     lifespan path is correct for a normally-started service.)
-- **Slice 3+ remaining**: the two heavy-ML engines (fraud-ring GNN, document-forgery
-  LayoutLM), one at a time each with an integration test; then LLM + graph services.
+- **Slice 3+ — Fraud Ring (DONE)**: **Fraud Ring is now engine #5** (8023), composed with the
+  Business Registry adapter (8012) and the Graph Service (8006) backed by **REAL Neo4j** — the
+  graph relationship is the value proposition, so it is validated against a real graph DB
+  (Req 5.1/5.5/5.10), not the in-memory fake. Five engines now reach a DETERMINATE decision.
+  The engine + graph-service are spec-faithful and need NO torch/GNN and NO GraphSAGE weights:
+  the heavy ML lives only in graph-service's `community.py`, fully guarded, with Louvain
+  (networkx) + a deterministic hash-embedding fallback as the authoritative partitioner.
+  Details:
+  - **Engine→dependency auth (db95b7f, gap #1 — same class as 5eab64d).** The engine's Business
+    Registry + Graph Service clients (and `HttpCohortSource`) sent no `Authorization` header,
+    but both dependencies are auth-gated (`require_role(INVESTIGATOR)`, Req 19.7) → every call
+    would 401 and the engine would degrade (shell-employer skipped, no graph cohort). Added a
+    `service_token` setting + a `bearer_token` param on each client (attaches
+    `Authorization: Bearer` when set; empty in unit tests → no header). Client-level auth tests
+    assert the header is present with a token and absent without one.
+  - **Graph-sourced cohort (ef32bff, gap #2 — the value-proposition fix, Req 5.1).** The
+    employer's 24-month cohort lives in the graph (Neo4j), NOT on a single `claim.received`
+    event. Previously the engine drove coordinated-layoff (5.4) + community cluster (5.5) from a
+    PAYLOAD cohort and used community-detect only for a `num_communities` count — the graph was
+    not the source of the relationship evidence. Now:
+      * Graph Service gained `GraphRepository.fetch_employer_cohort(bns)` +
+        `FETCH_EMPLOYER_COHORT_CYPHER` (returns each cohort member WITH its edge/node attributes:
+        `sin_hash, postal_fsa, surname_hash, insurable_hours, separation_date, roe_submission_ts,
+        claim_id`) and a `GET /graph/cohort/{employer_bn}` endpoint (auth-gated). The
+        `FakeAsyncDriver` mirrors it; the same Cypher runs against real Neo4j.
+      * The engine's `graph_client.fetch_cohort(bn)` reads that cohort, and `analyze()` builds
+        BOTH the coordinated-layoff `CohortMember` list (5.4, from edge
+        `separation_date + roe_submission_ts`) and the community `CohortClaimant` list
+        (5.5/5.6, from `postal_fsa/surname_hash/insurable_hours`) from it. `community-detect` now
+        uses `employer_bns` mode (server reads the edges from Neo4j) when graph-sourced. The
+        payload cohort/graph_cohort remains the fallback when the graph is UNAVAILABLE (Req 5.9
+        degrade-gracefully). The response reports `graph_cohort_source`.
+  - **Compose (b12337d)**: engine #5 + `business-registry-adapter` (APP_ENV=development → federal
+    + 13 provincial fixtures, mock-data bind-mounted read-only) + `graph-service`
+    (`NEO4J_TEST_MODE=false` + `NEO4J_URI=bolt://neo4j:7687` → the LIVE Neo4j already in the infra
+    block). Orchestrator gained `ORCHESTRATOR_ENGINE_FRAUD_RING_URL`.
+    - **Dev-mode client gap fixed**: the engine lifespan built its dependency clients only when
+      NOT is_development, leaving them `None` in the dev compose. Now builds them whenever httpx
+      is available (the engine has no synthetic mode — it always calls the real dependencies).
+      Unit tests are unaffected: they use `TestClient(app)` WITHOUT its context manager, so the
+      lifespan never runs and test-injected fakes on `app.state` are preserved.
+    - **Two port mismatches fixed**: engine `graph_service_url` default `:8009` → `:8006` (matches
+      the graph-service Containerfile); dispatch `FRAUD_RING` default `:8000` → `:8023`.
+    - Verified LIVE over real Neo4j: 3 images build + boot; `/healthz` 200 for all (graph-service
+      200 proves live Neo4j connectivity); 401 unauthenticated / 200 with the INVESTIGATOR Bearer
+      on graph + registry. Seeded a 3-claimant ring via `/graph/construct`, read it back via
+      `/graph/cohort/{bn}`, and `/engine/analyze` (`graph_cohort_source=true`) produced HIGH
+      shell_employer_no_record (5.3) + CRITICAL coordinated_layoff (5.4) + CRITICAL
+      community_shared_attribute K1A (5.5) + HIGH cohort_hours_band (5.6), num_communities=1
+      (5.10). `podman-compose config` lints clean.
+  - **Integration test over real transports (f81fe37)** —
+    `test_five_engines_with_fraud_ring_graph_seam_over_real_neo4j` in
+    `tests/integration/test_slice1_end_to_end.py`: the Fraud Ring engine wired to a **REAL Neo4j**
+    (testcontainers `Neo4jContainer` 5.26.0-community) behind the Graph Service, plus the Business
+    Registry adapter, over real Kafka + loopback HTTP + real GCKey JWKS auth. Seeds a 3-claimant
+    ring into Neo4j via `/graph/construct`, runs the 5-engine pipeline; the engine reads the
+    cohort BACK from the graph and produces CRITICAL community_shared_attribute (5.5, FSA K1A) +
+    CRITICAL coordinated_layoff (5.4) + HIGH shell_employer_no_record (5.3), with the Louvain
+    partition covering all 3 ring claimants (5.10). The determinate decision is NON-AUTO_APPROVE.
+    Asserts the graph cohort + registry 401 unauthenticated / 200 with the Bearer (Req 19.7).
+    Verified LIVE: stable across 3 consecutive runs (~33 s each); full integration suite
+    **31 passed** (was 30).
+  - **GROUNDING NOTE — cohort source.** Req 5.1 assigns the 24-month bipartite graph to the
+    Graph Service ("retrieve or construct... for the employer's BN"). The `/graph/community-detect`
+    `employer_bns` mode + the new `/graph/cohort` endpoint read that cohort from Neo4j, so the
+    engine sources the relationship evidence from the accumulated graph, NOT from a single claim
+    event — nothing is invented. Community detection uses Louvain (deterministic); GraphSAGE/torch
+    remain optional and guarded (a future step could add trained weights, but Louvain is
+    authoritative per the design).
+- **Slice 3+ remaining**: the last heavy-ML engine — document-forgery (LayoutLM), with an
+  integration test; then LLM services.
 - **Heavy-ML last**: Document Forgery (LayoutLM), Fraud Ring (GNN), LLM (Llama), Ensemble
   real models (XGBoost/IsolationForest) — need full stack / containers, not .venv-core.
 - **Final**: CP37-style k8s deploy + load (p99 ≤ 2000 ms) as the TRUE integration checkpoint.
@@ -311,9 +384,10 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
 ## Task 30 — local full-stack compose (Option 1: the verified slice)
 `podman-compose.yml` composes the SLICE built + verified so far (not all 18 services):
 postgres (+ migrations 001–004 applied on init) + kafka/redis/otel, and the app services
-claim-intake, roe-adapter, pipeline-orchestrator, **four engines** (repetitive-pattern,
-history-inconsistency, regional-analysis, geographic-anomaly), **six adapters** (cra,
-stats-canada, job-bank, geonames, mvr, cbsa),
+claim-intake, roe-adapter, pipeline-orchestrator, **five engines** (repetitive-pattern,
+history-inconsistency, regional-analysis, geographic-anomaly, fraud-ring), **seven adapters**
+(cra, stats-canada, job-bank, geonames, mvr, cbsa, business-registry), the **Graph Service
+backed by REAL Neo4j** (the Fraud Ring graph relationship seam, Req 5.1/5.5/5.10),
 ensemble-scorer, portal-backend, claimant-portal — behind a Caddy single-origin proxy, with a
 local-dev JWKS + signed INVESTIGATOR service token for internal GCKey Bearer validation
 (Req 19.7 faithful; no bypass). `podman-compose config` lints clean; the engine, adapter, and
