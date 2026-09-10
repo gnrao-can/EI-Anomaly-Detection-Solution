@@ -12,6 +12,15 @@
 **/.mypy_cache
 **/.ruff_cache
 **/.hypothesis
+# Node / frontend artefacts — the claimant-portal image runs `npm ci` fresh,
+# so the local node_modules (and Vite/build output) must NOT enter the build
+# context. Besides bloating it ~112 MB, a partially-materialised Google Drive
+# File Stream file (e.g. node_modules/.vite/deps/_metadata.json) triggers an
+# "input/output error" mid-COPY and fails the build.
+**/node_modules
+**/.vite
+**/dist
+**/*.tsbuildinfo
 
 # Test code — never in production images
 tests/
