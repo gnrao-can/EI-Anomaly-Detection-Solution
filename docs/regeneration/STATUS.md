@@ -65,6 +65,10 @@ mocked seams, which caused the prior fragility).
 10. (Slice 3+ — db95b7f, ef32bff, b12337d, f81fe37) **Fraud Ring added as engine #5** over the
     REAL graph relationship seam (Neo4j + Graph Service + Business Registry adapter). See
     "Slice 3+ — Fraud Ring" below.
+11. (Slice 3+ — fba935b, cbc0872, 27e77f5, 854e470, 92f4f21, 2bd822f) **Document Forgery added
+    as engine #6** with the REAL CRA payroll seam (Req 7.7) + the LayoutLMv3 OCR plug-in
+    implemented (model-gated). **ALL SIX engines are now composed.** See "Slice 3+ — Document
+    Forgery" below.
 
 ## Key finding (scope correction)
 The prior "systemic integration failure" was over-stated. The real pipeline-core defect
@@ -158,9 +162,9 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
   `TESTCONTAINERS_RYUK_DISABLED=true`, `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`. Ryuk is
   disabled because it is unreliable under Podman; testcontainers' own context managers clean up.
 - Run: `scripts/itest-env.sh .venv-itest/bin/python -m pytest tests/integration -q`
-  (last verified: **31 passed** with the runtime up — incl. the Slice 3+ Geographic 4-engine
-  test and the Fraud Ring 5-engine test over REAL Neo4j; the suite skips cleanly without a
-  daemon).
+  (last verified: **32 passed** with the runtime up — incl. the Slice 3+ Geographic 4-engine
+  test, the Fraud Ring 5-engine test over REAL Neo4j, and the Document Forgery 6-engine test
+  over the REAL CRA payroll seam; the suite skips cleanly without a daemon).
 - Server-guard: the agent cannot launch the daemon/servers; `podman machine start` and any
   live service bring-up must be run in a human terminal. testcontainers containers are
   started/stopped WITHIN the pytest process, so the agent can drive the tests once the
@@ -375,8 +379,81 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
     event — nothing is invented. Community detection uses Louvain (deterministic); GraphSAGE/torch
     remain optional and guarded (a future step could add trained weights, but Louvain is
     authoritative per the design).
-- **Slice 3+ remaining**: the last heavy-ML engine — document-forgery (LayoutLM), with an
-  integration test; then LLM services.
+- **Slice 3+ — Document Forgery (DONE)**: **Document Forgery is now engine #6** (8015), composed
+  with the CRA adapter for the payroll cross-reference (Req 7.7). **ALL SIX engines are now
+  composed and run concurrently (Req 2.1/2.3).** The engine is spec-faithful and needs NO
+  torch/transformers to contribute: every heavy dependency (transformers/torch/PIL/pdf libs,
+  cryptography, pypdf/pdfminer) is lazily import-guarded, and OCR defaults to a deterministic
+  stub. Details:
+  - **Engine→CRA auth (fba935b, gap #1 — same class as the sibling engines).** The engine's
+    `CRAPayrollClient` sent no `Authorization` header, but the CRA adapter is auth-gated
+    (Req 19.7) → the 7.7 payroll call would 401 and silently degrade to UNAVAILABLE (never a
+    false CRITICAL). Added a `service_token` setting + a `bearer_token` param; the default
+    transport attaches `Authorization: Bearer` when set (empty in unit tests / injected
+    transport → no header). Wired from `settings.service_token` in the lifespan. Default-
+    transport auth tests (httpx MockTransport) assert the header contract.
+  - **CRA `/cra/payroll` endpoint (cbc0872 — the 7.7 seam).** The engine calls
+    `GET /cra/payroll/{sin_hash}/{employer_bn}?start=..&end=..`, but the CRA adapter only
+    exposed `/cra/t4`. Added the payroll endpoint (auth-gated INVESTIGATOR), mirroring the T4
+    endpoint's 5-second total timeout + structured UNAVAILABLE + ClickHouse audit (raw SIN never
+    logged). `generate_synthetic_payroll_presence` is deterministic (Req 11.8): a `sin_hash`
+    bearing an ABSENT marker (`ghost`/`absent`/`notinpayroll`) is NOT in payroll (drives the 7.7
+    CRITICAL), while ~90% of ordinary SINs are present. `{status: OK, sin_in_payroll: bool}` on
+    success; `{status: UNAVAILABLE}` on timeout (not evidence of absence — no false CRITICAL).
+  - **Orchestrator data-flow + port (27e77f5, gap #2).** The engine's AnalyzeRequest is
+    `{claim_id, document}` and it received an empty `document={}` because `_build_engine_request`
+    forwarded only a flat body. Added a nested `document` assembled from the canonical Claim
+    fields the pipeline carries, mapped to the engine's ROE field names: `sin_hash`,
+    `employer_bn`, `hours`/`earnings`, `first_day_worked` (← `claim_start_date`), `last_day_paid`
+    (← `separation_date`) + a `fields` bag. Feeds the FEEDABLE checks (7.2 date-order + 7.7
+    payroll). Other engines ignore the extra key. Fixed the port default
+    `DOCUMENT_FORGERY` 8000 → 8015 (matches the engine Containerfile) + added
+    `ORCHESTRATOR_ENGINE_DOCUMENT_FORGERY_URL` to the compose.
+  - **LayoutLMv3 OCR plug-in IMPLEMENTED (854e470) — but model-gated.** Replaced the
+    `NotImplementedError` plug-in stub in `ocr.py` with the real inference wiring behind the
+    existing lazy transformers+torch+PIL imports: `_render_image` (image / image_path /
+    image_bytes / first PDF page via pdf2image) → processor → model logits → softmax → per-token
+    argmax label + probability → group tokens by mapped field → each field's value is the
+    detokenised span and its confidence is the MIN token probability (weakest link).
+    `_label_to_field` maps the checkpoint's `id2label` onto the 11 `MANDATORY_ROE_FIELDS`,
+    tolerant of IOB/BILOU prefixes. **The engine has no dependency change** — the stack stays
+    lazily imported and `get_extractor` still returns the deterministic `StubOCRExtractor` in
+    dev/test/CI (force_stub_ocr) or when transformers is absent, so the unit suite is unaffected
+    (80 passed, 3 skipped). `tests/unit/test_document_forgery_layoutlm_model.py`: the pure
+    `_label_to_field` mapping tests ALWAYS run; the real-inference smoke test is **model-gated** —
+    skipped unless torch+transformers+PIL import AND a checkpoint is supplied via
+    `DOC_FORGERY_LAYOUTLM_MODEL` — and proves the 11-field + [0,1]-confidence contract from a
+    rendered ROE. This gives a real, runnable path to the ML model the moment a fine-tuned ROE
+    checkpoint is available, without burdening CI. **No fine-tuned ROE checkpoint ships here.**
+  - **Compose (92f4f21)**: `document-forgery-engine` (8015) with env_file `.env.dev-token`
+    (SERVICE_TOKEN), `USE_STUB_OCR=true`, `GCKEY_JWKS_URL`, `CRA_ADAPTER_BASE_URL`. Verified LIVE
+    over Podman: image builds + boots; `/healthz` 200 (extraction_source stub); the CRA adapter
+    (rebuilt with `/cra/payroll`) serves the ghost SIN → `sin_in_payroll:false` (200) and 401
+    unauthenticated (Req 19.7); a forged-ROE `POST /engine/analyze` produced THREE real CRITICAL
+    indicators — hours×rate consistency (7.2, when `hourly_rate` is supplied directly),
+    signature-absent (7.6), and payroll SIN-not-in-payroll (7.7 via the real CRA call with the
+    SERVICE_TOKEN Bearer). `podman-compose config` lints clean.
+  - **Integration test over real transports (2bd822f)** —
+    `test_six_engines_with_document_forgery_cra_payroll_over_real_transports` in
+    `tests/integration/test_slice1_end_to_end.py`: the Document Forgery engine wired to the REAL
+    CRA adapter in a 6-engine pipeline over real Kafka + loopback HTTP + real GCKey JWKS auth. A
+    forged-ROE claim (`ghost-` SIN; `separation_date` before `claim_start_date`) drives
+    `payroll_cross_reference SIN_NOT_IN_PAYROLL` (7.7, via the real CRA call) + `date_order_
+    consistency` (7.2) CRITICAL; the determinate decision is NON-AUTO_APPROVE. Asserts the CRA
+    payroll 401 unauthenticated / 200 with the Bearer (Req 19.7). Verified LIVE: the new test
+    passes; full integration suite **32 passed** (was 31).
+  - **GROUNDING NOTE — what is NOT fed from the pipeline.** The reachable checks over
+    `claim.received`/`roe.received` are 7.2 date-order + 7.7 payroll. The others are NOT fed
+    because the pipeline carries no source for their inputs: 7.2a hours×rate needs `hourly_rate`
+    (not on the events); 7.3 PDF-metadata + 7.4 font + 7.5/7.6 signature need the raw ROE
+    document + the employer document/font/signature registries (no document-fetch or registry
+    seam exists); 7.8 LLM style needs the LLM service + a ≥5-ROE corpus. These are honestly
+    skipped in-pipeline (not faked). OCR is the LayoutLMv3 plug-in point (stub by default). A
+    future slice could add a document-fetch + registry seam (and/or a fine-tuned LayoutLMv3
+    checkpoint) to feed 7.3/7.4/7.5/7.6/7.8 and validate the OCR model end to end.
+- **Slice 3+ remaining**: none — all six detection engines are composed and integration-tested.
+  Next: LLM services (narrative contradiction Req 6.6, style analysis Req 7.8) + the Ensemble
+  real ML models; then the k8s deploy + p99 ≤ 2000 ms load checkpoint.
 - **Heavy-ML last**: Document Forgery (LayoutLM), Fraud Ring (GNN), LLM (Llama), Ensemble
   real models (XGBoost/IsolationForest) — need full stack / containers, not .venv-core.
 - **Final**: CP37-style k8s deploy + load (p99 ≤ 2000 ms) as the TRUE integration checkpoint.
@@ -384,10 +461,10 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
 ## Task 30 — local full-stack compose (Option 1: the verified slice)
 `podman-compose.yml` composes the SLICE built + verified so far (not all 18 services):
 postgres (+ migrations 001–004 applied on init) + kafka/redis/otel, and the app services
-claim-intake, roe-adapter, pipeline-orchestrator, **five engines** (repetitive-pattern,
-history-inconsistency, regional-analysis, geographic-anomaly, fraud-ring), **seven adapters**
-(cra, stats-canada, job-bank, geonames, mvr, cbsa, business-registry), the **Graph Service
-backed by REAL Neo4j** (the Fraud Ring graph relationship seam, Req 5.1/5.5/5.10),
+claim-intake, roe-adapter, pipeline-orchestrator, **all six engines** (repetitive-pattern,
+history-inconsistency, regional-analysis, geographic-anomaly, fraud-ring, document-forgery),
+**seven adapters** (cra, stats-canada, job-bank, geonames, mvr, cbsa, business-registry), the
+**Graph Service backed by REAL Neo4j** (the Fraud Ring graph relationship seam, Req 5.1/5.5/5.10),
 ensemble-scorer, portal-backend, claimant-portal — behind a Caddy single-origin proxy, with a
 local-dev JWKS + signed INVESTIGATOR service token for internal GCKey Bearer validation
 (Req 19.7 faithful; no bypass). `podman-compose config` lints clean; the engine, adapter, and
