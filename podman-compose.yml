@@ -175,7 +175,9 @@ services:
   # Ensemble Scorer -> claim.scored; plus the mock-data adapters those engines
   # call (CRA, Stats Canada, Job Bank, GeoNames, MVR, CBSA, Business Registry),
   # the Graph Service backed by REAL Neo4j (the Fraud Ring graph relationship
-  # seam, Req 5.1/5.5/5.10), and the portal-backend + SPA behind a single-origin
+  # seam, Req 5.1/5.5/5.10), the LLM Service (narrative-contradiction Req 6.6 +
+  # style-analysis Req 7.8 + bilingual explanations Req 20; StubLLM in dev, real
+  # Llama model-gated), and the portal-backend + SPA behind a single-origin
   # proxy. Document Forgery's OCR is the LayoutLMv3 plug-in point (stub in dev);
   # everything else runs real. With >=3 engines reachable the pipeline reaches a
   # DETERMINATE decision (Req 2.2) — see docs/regeneration/STATUS.md. All images
@@ -192,6 +194,25 @@ services:
     command: ["caddy", "file-server", "--root", "/srv", "--listen", ":80"]
     volumes:
       - ./scripts/dev/jwks:/srv:ro
+    restart: unless-stopped
+
+  # ── LLM Service (Slice 3+ — narrative classification + explanations) ─
+  # Wraps Llama 3.1 via LangChain (Req 20); in dev the GGUF weights are absent so
+  # it runs the DETERMINISTIC StubLLM + hashing-similarity fallback (the real
+  # Llama is a model-gated plug-in — mount weights + set LLM_LLAMA_MODEL_PATH to
+  # enable). Serves /llm/similarity, /llm/explain, /llm/narrative-contradiction
+  # (History Req 6.6) and /llm/style-analysis (Document Forgery Req 7.8). Every
+  # endpoint validates a GCKey INVESTIGATOR Bearer (Req 19.7). Listens on 8005.
+  llm-service:
+    build:
+      context: .
+      dockerfile: services/llm-service/Containerfile
+    container_name: ei-ads-llm-service
+    # No host port — internal only (see claim-intake note).
+    environment:
+      LLM_SERVICE_NAME: "llm-service"
+      GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
+    # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
   # ── Claim Intake Service ──────────────────────────────────
@@ -381,6 +402,10 @@ services:
     environment:
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
       CRA_ADAPTER_URL: "http://cra-adapter:8011"
+      # LLM Service for the narrative-contradiction check (Req 6.6/6.7). The
+      # engine presents its SERVICE_TOKEN Bearer; a slow/absent LLM degrades to
+      # NARRATIVE_ANALYSIS_TIMEOUT (never blocks the 500 ms core budget).
+      LLM_SERVICE_URL: "http://llm-service:8005"
     # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 
@@ -530,6 +555,10 @@ services:
       USE_STUB_OCR: "true"
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
       CRA_ADAPTER_BASE_URL: "http://cra-adapter:8011"
+      # LLM Service for the termination-narrative style check (Req 7.8/7.9). The
+      # engine presents its SERVICE_TOKEN Bearer; the check is best-effort and
+      # off the 700 ms critical path (skipped for < 5 prior ROEs).
+      LLM_SERVICE_BASE_URL: "http://llm-service:8005"
     # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 

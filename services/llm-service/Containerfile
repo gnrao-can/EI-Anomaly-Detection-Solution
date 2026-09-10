@@ -22,9 +22,13 @@ RUN pip install --no-cache-dir --upgrade pip==24.3.1 poetry==1.8.5
 COPY pyproject.toml ./
 COPY shared/ ./shared/
 
-# llama-cpp-python requires C++ build tools for compilation
+# llama-cpp-python requires C++ build tools for compilation. The ubi9/python-311
+# base image runs as USER 1001 by default, but dnf needs root — switch to USER 0
+# for the install, then drop privileges back for the poetry install below.
+USER 0
 RUN dnf install -y --nodocs gcc gcc-c++ make cmake \
     && dnf clean all
+USER 1001
 
 RUN poetry config virtualenvs.create false \
     && poetry install --no-interaction --no-ansi --without dev
@@ -38,9 +42,11 @@ LABEL org.opencontainers.image.title="ei-ads-llm-service" \
 
 WORKDIR /app
 
-# Install shared C++ runtime libs needed by llama-cpp-python
+# Install shared C++ runtime libs needed by llama-cpp-python (dnf needs root).
+USER 0
 RUN dnf install -y --nodocs libstdc++ \
     && dnf clean all
+USER 1001
 
 # The ubi9/python-311 base installs into the /opt/app-root venv; copy the
 # whole venv (packages + console scripts) rather than the /usr/* paths.
