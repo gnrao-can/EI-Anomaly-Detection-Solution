@@ -155,6 +155,34 @@ def generate_synthetic_t4(
 
 
 # ---------------------------------------------------------------------------
+# Synthetic payroll presence for dev/test (Requirement 7.7 — Document Forgery)
+# ---------------------------------------------------------------------------
+
+#: A ``sin_hash`` whose (case-insensitive) form starts with any of these markers
+#: is deterministically treated as ABSENT from the employer's payroll. This lets
+#: tests and the local walkthrough drive the Document Forgery 7.7 "SIN not in
+#: payroll" CRITICAL path without depending on the pseudo-random default split.
+_PAYROLL_ABSENT_MARKERS: tuple[str, ...] = ("ghost", "absent", "notinpayroll")
+
+
+def generate_synthetic_payroll_presence(sin_hash: str, employer_bn: str) -> bool:
+    """Return whether ``sin_hash`` appears in ``employer_bn``'s payroll (dev/test).
+
+    Deterministic in the inputs (Requirement 11.8 synthetic posture): a
+    ``sin_hash`` bearing an ABSENT marker (see :data:`_PAYROLL_ABSENT_MARKERS`)
+    is always NOT in payroll; otherwise ~90% of SINs are present (a small
+    deterministic minority is absent) so a random hash is overwhelmingly
+    "found", matching the realistic case that most ROEs are genuine.
+    """
+    normalised = (sin_hash or "").strip().lower()
+    if any(normalised.startswith(m) for m in _PAYROLL_ABSENT_MARKERS):
+        return False
+    # 0..99; treat < 10 as absent so the common case is "present".
+    bucket = _deterministic_int(f"payroll:{sin_hash}:{employer_bn}", 0, 99)
+    return bucket >= 10
+
+
+# ---------------------------------------------------------------------------
 # mTLS httpx client construction (Requirement 11.1)
 # ---------------------------------------------------------------------------
 
@@ -295,6 +323,32 @@ class CRAClient:
 
         return T4Result(status="OK", record=project_allowed_fields(kept))
 
+    def get_payroll_presence(
+        self, sin_hash: str, employer_bn: str, start: str, end: str
+    ) -> bool:
+        """Return whether ``sin_hash`` appears in ``employer_bn``'s payroll.
+
+        Used by the Document Forgery Engine's payroll cross-reference (Req 7.7).
+        In dev/test (no mTLS upstream) a deterministic synthetic presence is
+        used; in production the CRA payroll endpoint is queried over mTLS.
+        """
+        if self._http is None:
+            return generate_synthetic_payroll_presence(sin_hash, employer_bn)
+
+        path = f"/cra/payroll/{sin_hash}/{employer_bn}?start={start}&end={end}"
+        response = self._http.get(path)
+        if response.status_code == 404:
+            return False
+        response.raise_for_status()
+        body = response.json()
+        # Prefer an explicit boolean; fall back to a status word.
+        present = body.get("sin_in_payroll")
+        if present is None:
+            present = body.get("found")
+        if present is None:
+            present = str(body.get("status", "")).upper() in {"FOUND", "PRESENT", "OK"}
+        return bool(present)
+
     def close(self) -> None:
         """Close the underlying HTTP client if one is held."""
         if self._http is not None:
@@ -310,6 +364,7 @@ __all__ = [
     "is_record_too_old",
     "discard_if_too_old",
     "generate_synthetic_t4",
+    "generate_synthetic_payroll_presence",
     "build_mtls_client",
     "T4Result",
     "CRAClient",

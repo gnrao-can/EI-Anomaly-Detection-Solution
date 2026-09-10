@@ -228,6 +228,71 @@ async def get_t4(
     )
 
 
+@app.get("/cra/payroll/{sin_hash}/{employer_bn}")
+async def get_payroll(
+    sin_hash: str,
+    employer_bn: str,
+    start: str = Query(default="", description="Employment period start (ISO date)."),
+    end: str = Query(default="", description="Employment period end (ISO date)."),
+    claim_id: str = Query(default="", description="Claim_ID for the audit trail."),
+    _user: dict[str, Any] = Depends(require_role(Role.INVESTIGATOR)),
+) -> JSONResponse:
+    """Report whether a SIN appears in an employer's CRA payroll for a period.
+
+    Backs the Document Forgery Engine's payroll cross-reference (Requirement
+    7.7): a confirmed-absent SIN is a hard forgery signal. Returns 200 with
+    ``{"status": "OK", "sin_in_payroll": <bool>}`` on success, and 200 with
+    ``{"status": "UNAVAILABLE"}`` when the 5-second total timeout is hit — an
+    unavailable adapter is NOT evidence of absence, so the engine must not
+    false-flag on it. Every outcome is audited to ClickHouse within 1 second;
+    the raw SIN is never logged (only ``sin_hash``).
+    """
+    settings = getattr(app.state, "settings", None) or get_settings()
+    client = _get_client(app)
+    audit = _get_audit_writer(app)
+
+    effective_timeout_s = max(
+        0.0,
+        settings.cra_timeout_seconds - (settings.cra_unavailable_margin_ms / 1000.0),
+    )
+    start_t = time.monotonic()
+    try:
+        present = await asyncio.wait_for(
+            asyncio.to_thread(
+                client.get_payroll_presence, sin_hash, employer_bn, start, end
+            ),
+            timeout=effective_timeout_s,
+        )
+    except asyncio.TimeoutError:
+        present = None
+    duration_ms = (time.monotonic() - start_t) * 1000.0
+
+    if present is None:
+        await audit.log_access(
+            claim_id,
+            fields_accessed=[],
+            sin_hash=sin_hash,
+            outcome="UNAVAILABLE",
+            duration_ms=duration_ms,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={"status": "UNAVAILABLE"},
+        )
+
+    await audit.log_access(
+        claim_id,
+        fields_accessed=["payroll_presence"],
+        sin_hash=sin_hash,
+        outcome="SUCCESS",
+        duration_ms=duration_ms,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_200_OK,
+        content={"status": "OK", "sin_in_payroll": bool(present)},
+    )
+
+
 @app.get("/healthz")
 async def healthz() -> JSONResponse:
     """Report basic readiness for the CRA Adapter."""
@@ -242,4 +307,4 @@ async def healthz() -> JSONResponse:
     )
 
 
-__all__ = ["app", "lifespan", "get_t4", "healthz"]
+__all__ = ["app", "lifespan", "get_t4", "get_payroll", "healthz"]

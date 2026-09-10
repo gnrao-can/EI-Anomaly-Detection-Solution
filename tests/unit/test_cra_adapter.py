@@ -44,6 +44,7 @@ from client import (  # noqa: E402
     ALLOWED_FIELDS,
     CRAClient,
     discard_if_too_old,
+    generate_synthetic_payroll_presence,
     generate_synthetic_t4,
     is_record_too_old,
     project_allowed_fields,
@@ -357,3 +358,73 @@ def test_raw_sin_never_in_audit_row():
     # sin_hash column present and exactly 64 chars.
     assert len(written["sin_hash"]) == 64
     assert written["sin_hash"] == "b" * 64
+
+
+# ===========================================================================
+# Payroll presence (Req 7.7 — Document Forgery cross-reference seam)
+# ===========================================================================
+
+
+def test_synthetic_payroll_absent_marker_is_not_in_payroll():
+    """A sin_hash bearing an ABSENT marker is deterministically NOT in payroll."""
+    assert generate_synthetic_payroll_presence("ghost-abc", "987654321RT0001") is False
+    assert generate_synthetic_payroll_presence("ABSENT-xyz", "987654321RT0001") is False
+    # Deterministic + case-insensitive on the marker.
+    assert generate_synthetic_payroll_presence("ghost-abc", "987654321RT0001") is False
+
+
+def test_synthetic_payroll_ordinary_sin_is_present_and_deterministic():
+    """An ordinary sin_hash is in payroll (common case) and stable across runs."""
+    a = generate_synthetic_payroll_presence("ordinary-worker-1", "987654321RT0001")
+    b = generate_synthetic_payroll_presence("ordinary-worker-1", "987654321RT0001")
+    assert a == b
+    assert a is True
+
+
+def test_client_synthetic_payroll_presence():
+    """CRAClient (synthetic mode) resolves payroll presence without a network."""
+    client = CRAClient(_settings())  # no mTLS -> synthetic
+    assert client.uses_synthetic_data is True
+    assert (
+        client.get_payroll_presence(
+            "ghost-x", "987654321RT0001", "2024-01-01", "2024-06-01"
+        )
+        is False
+    )
+    assert (
+        client.get_payroll_presence(
+            "ordinary-worker-1", "987654321RT0001", "2024-01-01", "2024-06-01"
+        )
+        is True
+    )
+
+
+def test_payroll_endpoint_reports_presence():
+    """GET /cra/payroll/{sin}/{bn} returns sin_in_payroll from synthetic data."""
+    from fastapi.testclient import TestClient
+    from shared.auth import get_current_user as _gcu
+
+    main = _load_cra_main()
+    settings = _settings()
+    main.app.state.settings = settings
+    main.app.state.cra_client = CRAClient(settings)  # synthetic
+    main.app.dependency_overrides[_gcu] = lambda: {"roles": ["INVESTIGATOR"]}
+    try:
+        client = TestClient(main.app)
+        # Absent SIN -> sin_in_payroll False (the 7.7 CRITICAL trigger).
+        resp = client.get(
+            "/cra/payroll/ghost-abc/987654321RT0001",
+            params={"start": "2024-01-01", "end": "2024-06-01"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["status"] == "OK"
+        assert body["sin_in_payroll"] is False
+        # Ordinary SIN -> present.
+        resp2 = client.get(
+            "/cra/payroll/ordinary-worker-1/987654321RT0001",
+            params={"start": "2024-01-01", "end": "2024-06-01"},
+        )
+        assert resp2.json()["sin_in_payroll"] is True
+    finally:
+        main.app.dependency_overrides.pop(_gcu, None)
