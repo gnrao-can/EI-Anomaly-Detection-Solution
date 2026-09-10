@@ -107,6 +107,42 @@ if _HAS_FASTAPI:
         word_count_fr: int
         flag: Optional[str] = None
 
+    class NarrativeContradictionRequest(BaseModel):
+        """Request body for ``POST /llm/narrative-contradiction`` (Req 6.6)."""
+
+        narrative: str = Field(
+            ..., description="ROE reason-for-separation narrative to classify."
+        )
+        cra_evidence: str = Field(
+            default="",
+            description="CRA employment evidence for the claimed separation period.",
+        )
+
+    class NarrativeContradictionResponse(BaseModel):
+        """Response body: contradiction classification + supporting evidence."""
+
+        contradicted: bool
+        evidence: str
+        source: str  # "llama" | "deterministic"
+
+    class StyleAnalysisRequest(BaseModel):
+        """Request body for ``POST /llm/style-analysis`` (Req 7.8)."""
+
+        narrative: str = Field(
+            ..., description="ROE termination narrative to classify."
+        )
+        corpus: list[str] = Field(
+            default_factory=list,
+            description="Prior authenticated ROE narratives for the same employer.",
+        )
+
+    class StyleAnalysisResponse(BaseModel):
+        """Response body: style-inconsistency classification + inconsistency score."""
+
+        inconsistent: bool
+        score: float = Field(..., ge=0.0, le=1.0)
+        source: str  # "llama" | "deterministic"
+
     app = FastAPI(
         title="EI-ADS LLM Service",
         description="Narrative similarity and bilingual explanation generation.",
@@ -176,6 +212,63 @@ if _HAS_FASTAPI:
             risk_decision=request.risk_decision,
         )
         return ExplainResponse(**result)
+
+    @app.post(
+        "/llm/narrative-contradiction",
+        response_model=NarrativeContradictionResponse,
+    )
+    def narrative_contradiction(
+        request: NarrativeContradictionRequest,
+        _user: dict[str, Any] = Depends(require_role(Role.INVESTIGATOR)),
+    ) -> NarrativeContradictionResponse:
+        """Classify whether an ROE separation narrative is contradicted by CRA.
+
+        Req 6.6: THE LLM_Service SHALL classify the narrative as contradicted
+        when CRA records show continued employment during the claimed
+        separation period. Deterministic in dev/sandbox (StubLLM); the real
+        Llama 3.1 answer is used when the GGUF weights are present (model-gated).
+        """
+        from classification import classify_contradiction
+
+        result = classify_contradiction(
+            request.narrative,
+            request.cra_evidence,
+            chain=get_chain(),
+            similarity=get_similarity_scorer(),
+        )
+        return NarrativeContradictionResponse(
+            contradicted=result.contradicted,
+            evidence=result.evidence,
+            source=result.source,
+        )
+
+    @app.post("/llm/style-analysis", response_model=StyleAnalysisResponse)
+    def style_analysis(
+        request: StyleAnalysisRequest,
+        _user: dict[str, Any] = Depends(require_role(Role.INVESTIGATOR)),
+    ) -> StyleAnalysisResponse:
+        """Classify whether an ROE termination narrative is stylistically off.
+
+        Req 7.8: THE LLM_Service SHALL identify language statistically
+        inconsistent with the employer's historical ROE communication style.
+        The narrative's inconsistency is scored against the supplied corpus via
+        the real similarity backend; the real Llama answer refines the boolean
+        when the weights are present (model-gated). The ≥5-prior-ROE gate
+        (Req 7.9) is enforced by the calling engine.
+        """
+        from classification import classify_style_inconsistency
+
+        result = classify_style_inconsistency(
+            request.narrative,
+            list(request.corpus),
+            similarity=get_similarity_scorer(),
+            chain=get_chain(),
+        )
+        return StyleAnalysisResponse(
+            inconsistent=result.inconsistent,
+            score=result.score,
+            source=result.source,
+        )
 
 else:  # pragma: no cover - executed only when FastAPI is not installed
 
