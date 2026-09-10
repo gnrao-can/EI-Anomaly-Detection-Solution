@@ -509,7 +509,20 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
     Verified LIVE on the compose network: `/healthz` 200 (no auth); `/llm/narrative-contradiction`
     401 no-Bearer / 200 with INVESTIGATOR Bearer (`contradicted:true, source:deterministic`);
     `/llm/style-analysis` 401 / 200 (`inconsistent:true, score≈0.81, source:deterministic`).
-    `podman-compose config` lints clean.
+    `podman-compose config` lints clean. Also fixed a rootless-build blocker in the Containerfile
+    (base runs `USER 1001` → the two `dnf install` steps failed; bracketed each with
+    `USER 0`/`USER 1001`, keeping the `llama-cpp-python` build dep for the model-gated Llama).
+  - **Startup warm-up (447a89d) — found by driving the LIVE compose seam.** The LLM Service builds
+    its similarity backend (sentence-transformers + Chroma) lazily on first use; that cold build
+    exceeded the History engine's 10 s budget, so the FIRST `/llm/narrative-contradiction` call
+    degraded to `NARRATIVE_ANALYSIS_TIMEOUT` (Req 6.7 — honest degradation), then warmed. Added a
+    FastAPI lifespan that schedules a BACKGROUND warm-up (`asyncio.to_thread`) of the scorer + chain
+    on startup — never blocks startup or the `/healthz` probe, best-effort. Verified LIVE: after the
+    fix the FIRST History `/engine/analyze` narrative call returns the **CRITICAL**
+    `llm_narrative_contradiction` (`contradicted:true`) with no cold-start timeout, alongside the
+    CRA earnings-discrepancy CRITICAL — driven by the agent over the compose network through REAL
+    CRA + REAL LLM containers. Loopback/integration tests missed this (same-process model load is
+    fast). 109 llm-related unit tests still pass.
   - **Integration tests over real transports (3debe90).** Five new tests in
     `tests/integration/test_slice1_end_to_end.py` exercise the seam over real loopback HTTP +
     real GCKey JWKS auth (each engine builds its real HTTP client in its lifespan and crosses a
@@ -627,6 +640,43 @@ failures noted in "Task 30 — compose gotchas" below:**
    prints a `Cookie: ei_ads_session=...` header and a ready `curl` for `/portal/investigator/claims`
    via `http://localhost:8090`. In a browser, set that cookie for `localhost:8090` (devtools →
    Application → Cookies) and load the dashboard.
+
+**LLM Service walkthrough (Req 6.6 / 7.8 — the two classification checks).** The `llm-service`
+(8005) is internal-only; drive it (and the two engines that consume it) with a throwaway `curl`
+on `ei-anomaly-detection-solution_default`. Mint an INVESTIGATOR Bearer with
+`.venv-core/bin/python scripts/dev/mint-token.py --role INVESTIGATOR` (the `.env.dev-token`
+`SERVICE_TOKEN` may have expired — this reuses the SAME signing key the running `jwks` serves;
+do NOT re-run `gen-service-token.py`, which regenerates the keypair and orphans the running jwks).
+- **Direct LLM Service:** `POST http://llm-service:8005/llm/narrative-contradiction`
+  `{"narrative":"laid off due to shortage of work","cra_evidence":"employee remained on active
+  payroll through the claimed separation period"}` → `{contradicted:true, evidence:…,
+  source:"deterministic"}`; `POST /llm/style-analysis` `{"narrative":"terminated for cause",
+  "corpus":[…≥5…]}` → `{inconsistent:true, score:…, source:"deterministic"}`. Both 401 without a
+  Bearer, 200 with the INVESTIGATOR Bearer (Req 19.7). `/healthz` is open. `source:"deterministic"`
+  confirms the Option A path (no GGUF → StubLLM; the classifier is authoritative; the real Llama is
+  model-gated).
+- **Through the History engine (Req 6.6, the pipeline-realistic call):** `POST
+  http://history-inconsistency-engine:8010/engine/analyze` with the INVESTIGATOR Bearer and a body
+  carrying `separation_narrative` + `cra_continued_employment_evidence` (plus `sin_hash`,
+  `tax_year`, `employer_bn`, `roe_earnings`). The engine calls the REAL CRA adapter (synthetic T4
+  resolves) AND the REAL LLM Service over the container network, forwarding its `SERVICE_TOKEN`
+  Bearer, and returns a **CRITICAL `llm_narrative_contradiction`** Indicator (`contradicted:true`).
+  Verified LIVE by the agent over the compose network (CRA T4 $58,164 earnings-discrepancy CRITICAL
+  + the LLM contradiction CRITICAL in the same response).
+- **Through the Document Forgery engine (Req 7.8):** `POST
+  http://document-forgery-engine:8015/engine/analyze` with a `document.termination_narrative` and a
+  `document.document_registry.prior_roe_narratives` corpus of ≥ 5 → a **MEDIUM `llm_style_analysis`**
+  Indicator (`flag STYLE_INCONSISTENT`); a corpus < 5 is SKIPPED (Req 7.9).
+- **NOTE — cold start (found + fixed live, 447a89d).** The LLM Service builds its similarity backend
+  (sentence-transformers + Chroma) lazily; the first cold build exceeded the History engine's 10 s
+  budget so the FIRST narrative call degraded to `NARRATIVE_ANALYSIS_TIMEOUT` (Req 6.7, honest
+  degradation), then warmed. Fixed by a startup BACKGROUND warm-up (never blocks `/healthz`); the
+  first narrative call now returns the CRITICAL contradiction. If you run an OLDER llm-service image,
+  hit `/llm/narrative-contradiction` once to warm it before driving the engine.
+- **NOTE — not pipeline-fed yet.** The orchestrator's `claim.received`/`roe.received` events carry no
+  narrative or prior-ROE corpus, so in the full Kafka pipeline the two LLM checks are honestly
+  SKIPPED (the checkers no-op on empty inputs). Drive them directly against the engine (above) to
+  observe the Indicators. A future slice could add a narrative/registry seam to feed them end to end.
 
 **If a bring-up fails, RESET cleanly (never `up` on top of partial state; no inline `#` comments in
 a pasted zsh block):** `unset DOCKER_HOST; podman stop -t 3 $(podman ps -aq); podman rm -f $(podman ps -aq)`.
