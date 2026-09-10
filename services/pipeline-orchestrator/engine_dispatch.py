@@ -141,7 +141,7 @@ ENGINE_TIMEOUT_MS: dict[EngineType, int] = {
 _DEFAULT_ENGINE_HOSTS: dict[EngineType, tuple[str, int]] = {
     EngineType.REPETITIVE_PATTERN: ("repetitive-pattern-engine", 8000),
     EngineType.GEOGRAPHIC_ANOMALY: ("geographic-anomaly-engine", 8000),
-    EngineType.FRAUD_RING: ("fraud-ring-engine", 8000),
+    EngineType.FRAUD_RING: ("fraud-ring-engine", 8023),
     EngineType.HISTORY_INCONSISTENCY: ("history-inconsistency-engine", 8000),
     EngineType.DOCUMENT_FORGERY: ("document-forgery-engine", 8000),
     EngineType.REGIONAL_ANALYSIS: ("regional-analysis-engine", 8000),

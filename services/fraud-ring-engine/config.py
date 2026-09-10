@@ -50,7 +50,8 @@ if _HAS_PYDANTIC_SETTINGS:
         # ── Business Registry Adapter (shell-employer detection) ────
         business_registry_adapter_url: str = "http://business-registry-adapter:8012"
         # ── Graph Service (community detection — task 13.2) ─────────
-        graph_service_url: str = "http://graph-service:8009"
+        # Port 8006 matches the graph-service Containerfile's uvicorn port.
+        graph_service_url: str = "http://graph-service:8006"
 
         # ── Internal service auth (Req 19.7) ────────────────────────
         # Service Bearer token presented on the internal Business Registry
@@ -122,7 +123,7 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
                 "http://business-registry-adapter:8012",
             )
             self.graph_service_url = os.environ.get(
-                "GRAPH_SERVICE_URL", "http://graph-service:8009"
+                "GRAPH_SERVICE_URL", "http://graph-service:8006"
             )
             # Internal service Bearer token (Req 19.7); empty in unit tests.
             self.service_token = os.environ.get("SERVICE_TOKEN", "")

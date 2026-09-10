@@ -109,7 +109,15 @@ async def lifespan(app: FastAPI):
         topic=settings.fraud_ring_indicators_topic
     )
 
-    if not settings.is_development and _HAS_HTTPX:  # pragma: no cover - live only
+    # Build the HTTP-backed dependency clients whenever httpx is available. The
+    # engine has no "synthetic" mode of its own — it always calls the real
+    # Business Registry Adapter and Graph Service over HTTP (in dev these are the
+    # fixture-backed adapter + the Neo4j-less/Neo4j graph-service in the compose
+    # network). This runs on real service startup (uvicorn lifespan). It does NOT
+    # affect unit tests, which construct ``TestClient(app)`` WITHOUT entering its
+    # context manager, so the lifespan never runs and the test-injected fakes on
+    # ``app.state`` are preserved.
+    if _HAS_HTTPX:  # pragma: no cover - exercised via the live/integration path
         client = httpx.AsyncClient()
         app.state.http_client = client
         # Internal GCKey service Bearer presented to the auth-gated Business
