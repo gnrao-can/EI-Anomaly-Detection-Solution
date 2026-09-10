@@ -294,3 +294,53 @@ def test_all_engines_called_concurrently():
     # All six workers started (each appended before its await).
     assert set(seen) == set(ALL_ENGINES)
     assert len(seen) == 6
+
+
+# ===========================================================================
+# _build_engine_request — Document Forgery document payload (Req 7.2/7.7)
+# ===========================================================================
+
+
+def test_build_engine_request_forwards_document_for_doc_forgery():
+    """The superset body carries a nested ``document`` mapped to the engine's
+    field names, feeding the internal-consistency (7.2) + payroll (7.7) checks."""
+    claim_payload = {
+        "claim_id": "c-doc-1",
+        "sin_hash": "ghost-abc",
+        "employer_bn": "987654321RT0001",
+        "insurable_hours": "40",
+        "insurable_earnings": "2000",
+        "separation_date": "2024-03-15",
+        "claim_start_date": "2024-01-02",
+    }
+    roe_payload = {"claim_id": "c-doc-1", "insurable_earnings": "2000"}
+
+    body = _dispatch._build_engine_request(claim_payload, roe_payload)
+    document = body.get("document")
+    assert isinstance(document, dict), body
+    # Payroll-cross-reference inputs (7.7).
+    assert document["sin_hash"] == "ghost-abc"
+    assert document["employer_bn"] == "987654321RT0001"
+    # Internal-consistency inputs (7.2): ROE field-name mapping.
+    assert document["hours"] == "40"
+    assert document["earnings"] == "2000"
+    assert document["first_day_worked"] == "2024-01-02"   # claim start
+    assert document["last_day_paid"] == "2024-03-15"       # separation date
+    # The 11-field bag mirrors the values under the engine's OCR field names.
+    fields = document["fields"]
+    assert fields["sin"] == "ghost-abc"
+    assert fields["total_insurable_hours"] == "40"
+    assert fields["total_insurable_earnings"] == "2000"
+    assert fields["last_day_paid"] == "2024-03-15"
+
+
+def test_build_engine_request_no_document_when_no_roe_fields():
+    """With no ROE fields present, no ``document`` object is emitted."""
+    body = _dispatch._build_engine_request({"claim_id": "c2"}, {})
+    assert "document" not in body
+
+
+def test_document_forgery_default_port_matches_container():
+    """The DOCUMENT_FORGERY default host port matches the engine Containerfile (8015)."""
+    host, port = _dispatch._DEFAULT_ENGINE_HOSTS[EngineType.DOCUMENT_FORGERY]
+    assert (host, port) == ("document-forgery-engine", 8015)

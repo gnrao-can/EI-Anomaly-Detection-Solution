@@ -143,7 +143,7 @@ _DEFAULT_ENGINE_HOSTS: dict[EngineType, tuple[str, int]] = {
     EngineType.GEOGRAPHIC_ANOMALY: ("geographic-anomaly-engine", 8000),
     EngineType.FRAUD_RING: ("fraud-ring-engine", 8023),
     EngineType.HISTORY_INCONSISTENCY: ("history-inconsistency-engine", 8000),
-    EngineType.DOCUMENT_FORGERY: ("document-forgery-engine", 8000),
+    EngineType.DOCUMENT_FORGERY: ("document-forgery-engine", 8015),
     EngineType.REGIONAL_ANALYSIS: ("regional-analysis-engine", 8000),
 }
 
@@ -326,7 +326,70 @@ def _build_engine_request(
     if hourly is not None:
         body["insurable_hourly_earnings"] = hourly
 
+    # document: the Document Forgery Engine (Req 7.x) reads a nested ``document``
+    # object (its AnalyzeRequest is ``{claim_id, document}``). We assemble it from
+    # the ROE fields the pipeline actually carries on the canonical Claim, mapped
+    # to the engine's field names, so the checks that are FEEDABLE from the event
+    # run over real transports:
+    #   * internal consistency (Req 7.2) — total_insurable_hours/earnings +
+    #     first_day_worked (claim start) / last_day_paid (separation date),
+    #   * payroll cross-reference (Req 7.7) — sin_hash + employer_bn + the
+    #     employment period.
+    # The other engines ignore this extra key (their Pydantic models drop it).
+    # NOTE (grounding): hourly_rate, pdf_creation_timestamp/issue_date, the font
+    # and signature material, and the prior-ROE corpus are NOT carried on
+    # claim.received/roe.received and there is no document-fetch or registry seam
+    # today, so those checks (7.3 font/metadata detail, 7.4/7.5/7.6, 7.8) are not
+    # fed from the pipeline and the engine skips them — the OCR itself is the
+    # LayoutLMv3 plug-in point (stub by default). See docs/regeneration/STATUS.md.
+    document = _build_document_payload(merged, roe_src)
+    if document:
+        body["document"] = document
+
     return body
+
+
+def _build_document_payload(
+    merged: dict[str, Any], roe_src: dict[str, Any]
+) -> dict[str, Any]:
+    """Assemble the Document Forgery Engine's ``document`` object (Req 7.2/7.7).
+
+    Maps the canonical Claim/ROE fields the pipeline carries onto the field
+    names the engine reads. Returns ``{}`` when nothing useful is available.
+    """
+    sin_hash = merged.get("sin_hash")
+    employer_bn = merged.get("employer_bn")
+    hours = merged.get("insurable_hours")
+    earnings = merged.get("insurable_earnings")
+    # ROE field-name mapping: claim start = first day worked; separation date =
+    # last day for which paid (Block 10 / Block 11 on the ROE).
+    first_day_worked = merged.get("claim_start_date")
+    last_day_paid = merged.get("separation_date")
+
+    document: dict[str, Any] = {}
+    fields: dict[str, Any] = {}
+    if sin_hash is not None:
+        document["sin_hash"] = sin_hash
+        fields["sin"] = sin_hash
+    if employer_bn is not None:
+        document["employer_bn"] = employer_bn
+        fields["employer_bn"] = employer_bn
+    if hours is not None:
+        document["hours"] = str(hours)
+        fields["total_insurable_hours"] = str(hours)
+    if earnings is not None:
+        document["earnings"] = str(earnings)
+        fields["total_insurable_earnings"] = str(earnings)
+    if first_day_worked is not None:
+        document["first_day_worked"] = str(first_day_worked)
+        fields["first_day_worked"] = str(first_day_worked)
+    if last_day_paid is not None:
+        document["last_day_paid"] = str(last_day_paid)
+        fields["last_day_paid"] = str(last_day_paid)
+
+    if fields:
+        document["fields"] = fields
+    return document
 
 
 def _year_of(iso_date: Any) -> Optional[int]:
