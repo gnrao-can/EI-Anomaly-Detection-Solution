@@ -2034,3 +2034,422 @@ async def test_six_engines_with_document_forgery_cra_payroll_over_real_transport
             svc.stop()
         os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
         os.environ.pop("SERVICE_TOKEN", None)
+
+
+# ===========================================================================
+# LLM Service seam — two engines calling the LLM Service over REAL loopback
+# HTTP with real GCKey/JWKS auth (Req 6.6/6.7 History; Req 7.8/7.9 Doc Forgery;
+# Req 19.7 auth on the LLM Service endpoints).
+#
+# These exercise the NEW seam added when the LLM Service was wired into the
+# pipeline: the History Inconsistency engine's narrative-contradiction check
+# and the Document Forgery engine's termination-narrative style check both POST
+# to the LLM Service over real HTTP, forwarding their SERVICE_TOKEN Bearer. The
+# LLM Service runs its real deterministic classifiers (StubLLM path — no GGUF
+# weights in the test env; the real Llama answer is model-gated). Nothing is
+# faked at the seam: the engine app builds its real HTTP client in the lifespan
+# (LoopbackService runs lifespan="on"), the request crosses a real socket, and
+# the LLM Service validates the Bearer against the test JWKS.
+# ===========================================================================
+
+# The LLM Service imports these siblings by bare name (config + similarity at
+# module load; classification / llm_chain / templates / explanation lazily on
+# the first request). Load them all so the request-time lazy imports resolve.
+_LLM_SIBLINGS = [
+    "config", "similarity", "classification", "llm_chain",
+    "templates", "explanation", "main",
+]
+
+
+def _start_llm_service(jwks_url: str) -> LoopbackService:
+    """Start the LLM Service on loopback HTTP, auth-gated against the test JWKS.
+
+    No GGUF weights in the test env → the service runs its deterministic
+    StubLLM + hashing-similarity classifiers (the real Llama answer is
+    model-gated). /healthz needs no auth; the classification endpoints require
+    an INVESTIGATOR Bearer (Req 19.7).
+    """
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    _reset_service_settings("llm-service")
+    service_main = load_service_module(
+        "llm-service", "main", siblings=_LLM_SIBLINGS
+    )
+    return LoopbackService(service_main.app, health_path="/healthz").start()
+
+
+def _start_history_engine_with_llm(jwks_url: str, cra_url: str, llm_url: str) -> LoopbackService:
+    """Start History Inconsistency wired to a REAL CRA adapter AND the LLM Service.
+
+    The engine builds its ``NarrativeContradictionChecker`` in the lifespan from
+    ``LLM_SERVICE_URL`` + ``SERVICE_TOKEN`` (LoopbackService runs the lifespan),
+    so the narrative check crosses a real socket to the LLM Service.
+    """
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["CRA_ADAPTER_URL"] = cra_url
+    os.environ["LLM_SERVICE_URL"] = llm_url
+    _reset_service_settings("history-inconsistency-engine")
+    engine_main = load_service_module(
+        "history-inconsistency-engine",
+        "main",
+        siblings=[
+            "config", "client", "discrepancy", "noc", "concurrent_employment",
+            "narrative", "llm_client", "kafka_publisher", "analysis", "main",
+        ],
+    )
+    # The module may be cached from an earlier test with a different LLM URL /
+    # no checker: refresh settings and drop the cached clients so the lifespan
+    # rebuilds them against the new URLs + SERVICE_TOKEN.
+    config_mod = load_service_module(
+        "history-inconsistency-engine", "config", siblings=["config"]
+    )
+    engine_main.app.state.settings = config_mod.get_settings()
+    for attr in ("cra_client", "narrative_checker", "indicator_publisher"):
+        if hasattr(engine_main.app.state, attr):
+            delattr(engine_main.app.state, attr)
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+def _start_document_forgery_with_llm(jwks_url: str, cra_url: str, llm_url: str) -> LoopbackService:
+    """Start Document Forgery wired to a REAL CRA adapter AND the LLM Service.
+
+    The engine builds its ``StyleAnalysisChecker`` in the lifespan from
+    ``LLM_SERVICE_BASE_URL`` + ``SERVICE_TOKEN``, so the style check crosses a
+    real socket to the LLM Service.
+    """
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    os.environ["USE_STUB_OCR"] = "true"
+    os.environ["CRA_ADAPTER_BASE_URL"] = cra_url
+    os.environ["LLM_SERVICE_BASE_URL"] = llm_url
+    _reset_service_settings("document-forgery-engine")
+    engine_main = load_service_module(
+        "document-forgery-engine",
+        "main",
+        siblings=[
+            "config", "ocr", "consistency", "metadata_forensics",
+            "font_fingerprint", "signature_verification", "style_analysis",
+            "llm_style_client", "payroll_cross_reference", "roe_canonical",
+            "kafka_publisher", "main",
+        ],
+    )
+    # Drop a cached style_checker (from an earlier test) so the lifespan rebuilds
+    # it against the fresh LLM_SERVICE_BASE_URL + SERVICE_TOKEN.
+    if hasattr(engine_main.app.state, "style_checker"):
+        delattr(engine_main.app.state, "style_checker")
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_llm_service_endpoints_reject_unauthenticated(itest_service_auth):
+    """The LLM Service classification endpoints require an INVESTIGATOR Bearer.
+
+    Req 19.7: every EI-ADS endpoint validates a GCKey Bearer → 401 when
+    unauthenticated. /healthz is exempt (liveness probe). Verified over real
+    loopback HTTP against the real shared.auth JWKS validation.
+    """
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+
+    llm = _start_llm_service(jwks_url)
+    try:
+        # /healthz is open.
+        health = httpx.get(f"{llm.base_url}/healthz", timeout=5.0)
+        assert health.status_code == 200, health.text
+
+        # Both classification endpoints 401 WITHOUT a Bearer …
+        nc_401 = httpx.post(
+            f"{llm.base_url}/llm/narrative-contradiction",
+            json={"narrative": "laid off", "cra_evidence": "still on payroll"},
+            timeout=5.0,
+        )
+        assert nc_401.status_code == 401, nc_401.text
+        sa_401 = httpx.post(
+            f"{llm.base_url}/llm/style-analysis",
+            json={"narrative": "terminated", "corpus": ["a", "b", "c", "d", "e"]},
+            timeout=5.0,
+        )
+        assert sa_401.status_code == 401, sa_401.text
+
+        # … and 200 WITH a valid INVESTIGATOR Bearer.
+        nc_200 = httpx.post(
+            f"{llm.base_url}/llm/narrative-contradiction",
+            json={
+                "narrative": "laid off due to shortage of work",
+                "cra_evidence": (
+                    "employee remained on active payroll through the claimed "
+                    "separation period"
+                ),
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+        assert nc_200.status_code == 200, nc_200.text
+        assert nc_200.json()["contradicted"] is True, nc_200.text
+    finally:
+        llm.stop()
+        os.environ.pop("SERVICE_TOKEN", None)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_history_narrative_contradiction_over_llm_seam(itest_service_auth):
+    """History → real HTTP → LLM Service → CRITICAL contradiction Indicator (Req 6.6).
+
+    The engine forwards its SERVICE_TOKEN Bearer to the LLM Service, which
+    classifies a shortage-of-work narrative contradicted by continued-employment
+    CRA evidence. The engine turns that into a CRITICAL
+    ``llm_narrative_contradiction`` Indicator. Real socket, real auth, real
+    deterministic classifier (source=deterministic; Llama model-gated).
+    """
+    from shared.models import Severity as _Sev
+
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    # The engine reads SERVICE_TOKEN in its lifespan to build the LLM client.
+    os.environ["SERVICE_TOKEN"] = token
+
+    services: list = []
+    try:
+        cra = _start_cra_adapter(jwks_url)
+        llm = _start_llm_service(jwks_url)
+        history = _start_history_engine_with_llm(jwks_url, cra.base_url, llm.base_url)
+        services = [cra, llm, history]
+
+        # Sanity: the LLM Service 401s without a Bearer (Req 19.7).
+        nc_401 = httpx.post(
+            f"{llm.base_url}/llm/narrative-contradiction",
+            json={"narrative": "x", "cra_evidence": "y"},
+            timeout=5.0,
+        )
+        assert nc_401.status_code == 401, nc_401.text
+
+        # Drive the engine's analyze endpoint. The synthetic CRA T4 resolves for
+        # any sin_hash in dev, so the narrative branch runs. The narrative +
+        # CRA continued-employment evidence trip the contradiction classifier.
+        resp = httpx.post(
+            f"{history.base_url}/engine/analyze",
+            json={
+                "sin_hash": "a" * 64,
+                "tax_year": 2024,
+                "employer_bn": "123456789RP0001",
+                "roe_earnings": "42000",
+                "claim_id": str(uuid4()),
+                "separation_narrative": "laid off due to shortage of work",
+                "cra_continued_employment_evidence": (
+                    "employee remained on active payroll through the claimed "
+                    "separation period"
+                ),
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15.0,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "OK", body
+
+        contradiction = [
+            i for i in body["indicators"]
+            if i["algorithm"] == "llm_narrative_contradiction"
+        ]
+        assert contradiction, (
+            "expected an llm_narrative_contradiction Indicator over the LLM seam; "
+            f"got {[i['algorithm'] for i in body['indicators']]}"
+        )
+        ind = contradiction[0]
+        assert ind["severity"] == _Sev.CRITICAL.value, ind
+        assert ind["engine"] == "HISTORY_INCONSISTENCY", ind
+        assert ind["payload"]["contradicted"] is True, ind
+        assert ind["payload"]["evidence"], "contradiction Indicator must carry evidence"
+    finally:
+        for svc in services:
+            svc.stop()
+        os.environ.pop("SERVICE_TOKEN", None)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_history_narrative_analysis_timeout_over_llm_seam(itest_service_auth):
+    """History → unreachable LLM Service → NARRATIVE_ANALYSIS_TIMEOUT flag (Req 6.7).
+
+    When the LLM Service does not return a classification (here: the URL points
+    at a CLOSED loopback port so the real HTTP call fails fast), the engine must
+    proceed and emit the ``NARRATIVE_ANALYSIS_TIMEOUT``-flagged Indicator rather
+    than crash — the narrative signal is off the 500 ms core budget.
+    """
+    from shared.models import Severity as _Sev
+
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    os.environ["SERVICE_TOKEN"] = token
+
+    services: list = []
+    try:
+        cra = _start_cra_adapter(jwks_url)
+        dead_llm = f"http://127.0.0.1:{_closed_loopback_port()}"
+        history = _start_history_engine_with_llm(jwks_url, cra.base_url, dead_llm)
+        services = [cra, history]
+
+        resp = httpx.post(
+            f"{history.base_url}/engine/analyze",
+            json={
+                "sin_hash": "c" * 64,
+                "tax_year": 2024,
+                "employer_bn": "123456789RP0001",
+                "roe_earnings": "42000",
+                "claim_id": str(uuid4()),
+                "separation_narrative": "laid off due to shortage of work",
+                "cra_continued_employment_evidence": "still on active payroll",
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15.0,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert body["status"] == "OK", body
+
+        narrative_inds = [
+            i for i in body["indicators"]
+            if i["algorithm"] == "llm_narrative_contradiction"
+        ]
+        assert narrative_inds, (
+            "expected a flagged narrative Indicator when the LLM Service is "
+            f"unreachable; got {[i['algorithm'] for i in body['indicators']]}"
+        )
+        flagged = narrative_inds[0]
+        assert flagged["severity"] == _Sev.UNRESOLVED.value, flagged
+        assert flagged["payload"].get("flag") == "NARRATIVE_ANALYSIS_TIMEOUT", flagged
+    finally:
+        for svc in services:
+            svc.stop()
+        os.environ.pop("SERVICE_TOKEN", None)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_document_forgery_style_analysis_over_llm_seam(itest_service_auth):
+    """Doc Forgery → real HTTP → LLM Service → MEDIUM style Indicator (Req 7.8).
+
+    With >=5 prior authenticated ROE narratives and a termination narrative that
+    is stylistically distant from that corpus, the LLM Service classifies the
+    narrative inconsistent and the engine emits a MEDIUM ``llm_style_analysis``
+    Indicator. Real socket, real auth, real deterministic classifier.
+    """
+    from shared.models import Severity as _Sev
+
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    os.environ["SERVICE_TOKEN"] = token
+
+    services: list = []
+    try:
+        cra = _start_cra_adapter(jwks_url)
+        llm = _start_llm_service(jwks_url)
+        docf = _start_document_forgery_with_llm(jwks_url, cra.base_url, llm.base_url)
+        services = [cra, llm, docf]
+
+        # A corpus of >=5 mundane layoff narratives; the submitted narrative is
+        # a for-cause misconduct termination — stylistically distant → the
+        # deterministic classifier scores it inconsistent (Req 7.8).
+        corpus = [
+            "shortage of work at end of season",
+            "seasonal layoff following the harvest",
+            "end of fixed term contract as scheduled",
+            "plant closure and permanent relocation",
+            "reduction of workforce due to restructuring",
+        ]
+        resp = httpx.post(
+            f"{docf.base_url}/engine/analyze",
+            json={
+                "claim_id": str(uuid4()),
+                "document": {
+                    "termination_narrative": (
+                        "terminated immediately for gross misconduct after an "
+                        "internal theft investigation concluded"
+                    ),
+                    "document_registry": {
+                        "prior_authenticated_roe_count": len(corpus),
+                        "prior_roe_narratives": corpus,
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15.0,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+
+        style = [
+            i for i in body["indicators"] if i["algorithm"] == "llm_style_analysis"
+        ]
+        assert style, (
+            "expected an llm_style_analysis Indicator over the LLM seam; got "
+            f"{[i['algorithm'] for i in body['indicators']]}"
+        )
+        ind = style[0]
+        assert ind["severity"] == _Sev.MEDIUM.value, ind
+        assert ind["engine"] == "DOCUMENT_FORGERY", ind
+        assert ind["payload"].get("flag") == "STYLE_INCONSISTENT", ind
+        assert ind["payload"]["corpus_size"] == len(corpus), ind
+    finally:
+        for svc in services:
+            svc.stop()
+        os.environ.pop("SERVICE_TOKEN", None)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_document_forgery_style_skipped_under_five_prior_roes(itest_service_auth):
+    """Doc Forgery skips the style check with < 5 prior authenticated ROEs (Req 7.9).
+
+    Even with the LLM Service reachable, a corpus of 4 prior ROEs is below the
+    5-ROE minimum, so the engine does NOT call the LLM Service and emits no
+    ``llm_style_analysis`` Indicator.
+    """
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    os.environ["SERVICE_TOKEN"] = token
+
+    services: list = []
+    try:
+        cra = _start_cra_adapter(jwks_url)
+        llm = _start_llm_service(jwks_url)
+        docf = _start_document_forgery_with_llm(jwks_url, cra.base_url, llm.base_url)
+        services = [cra, llm, docf]
+
+        corpus = [
+            "shortage of work at end of season",
+            "seasonal layoff following the harvest",
+            "end of fixed term contract as scheduled",
+            "plant closure and permanent relocation",
+        ]  # only 4 → below the 5-ROE gate (Req 7.9)
+        resp = httpx.post(
+            f"{docf.base_url}/engine/analyze",
+            json={
+                "claim_id": str(uuid4()),
+                "document": {
+                    "termination_narrative": (
+                        "terminated immediately for gross misconduct"
+                    ),
+                    "document_registry": {
+                        "prior_authenticated_roe_count": len(corpus),
+                        "prior_roe_narratives": corpus,
+                    },
+                },
+            },
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=15.0,
+        )
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        style = [
+            i for i in body["indicators"] if i["algorithm"] == "llm_style_analysis"
+        ]
+        assert not style, (
+            "style check must be skipped under 5 prior ROEs (Req 7.9); got "
+            f"{[i['payload'] for i in style]}"
+        )
+    finally:
+        for svc in services:
+            svc.stop()
+        os.environ.pop("SERVICE_TOKEN", None)
