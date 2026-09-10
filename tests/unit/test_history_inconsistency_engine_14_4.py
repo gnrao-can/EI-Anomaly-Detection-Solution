@@ -57,6 +57,7 @@ _SIBLINGS = [
     "noc",
     "concurrent_employment",
     "narrative",
+    "llm_client",
     "kafka_publisher",
     "analysis",
     "main",

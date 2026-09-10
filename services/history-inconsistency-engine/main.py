@@ -47,6 +47,7 @@ from shared.models import EngineType, Indicator, Severity
 try:  # sibling modules imported by bare name in the service directory
     from config import get_settings  # type: ignore
     from client import CRAAdapterClient, T4Lookup  # type: ignore
+    from llm_client import LLMServiceClient  # type: ignore
     from discrepancy import check_earnings_discrepancy  # type: ignore
     from analysis import run_core_analysis, run_narrative_check  # type: ignore
     from narrative import NarrativeContradictionChecker  # type: ignore
@@ -55,6 +56,7 @@ try:  # sibling modules imported by bare name in the service directory
 except ImportError:  # pragma: no cover - when imported as a package
     from .config import get_settings  # type: ignore
     from .client import CRAAdapterClient, T4Lookup  # type: ignore
+    from .llm_client import LLMServiceClient  # type: ignore
     from .discrepancy import check_earnings_discrepancy  # type: ignore
     from .analysis import run_core_analysis, run_narrative_check  # type: ignore
     from .narrative import NarrativeContradictionChecker  # type: ignore
@@ -139,7 +141,20 @@ async def lifespan(app: FastAPI):
     # producer. Kept out of the request path so a missing broker/LLM never
     # blocks analysis (Requirements 6.6, 6.7, 6.9).
     if not hasattr(app.state, "narrative_checker"):
-        app.state.narrative_checker = None
+        # Wire the LLM Service narrative-contradiction checker (Req 6.6/6.7).
+        # This runs on real service startup (uvicorn lifespan). Unit tests use
+        # TestClient WITHOUT its context manager, so the lifespan never runs and
+        # any test-injected fake on app.state is preserved. The client presents
+        # the engine's SERVICE_TOKEN Bearer (Req 19.7); the checker enforces the
+        # 10 s budget and turns a slow/failed LLM into NARRATIVE_ANALYSIS_TIMEOUT.
+        llm_client = LLMServiceClient(
+            settings.llm_service_url,
+            bearer_token=settings.service_token or None,
+            timeout_seconds=settings.llm_timeout_seconds,
+        )
+        app.state.narrative_checker = NarrativeContradictionChecker(
+            llm_client, timeout_seconds=settings.llm_timeout_seconds
+        )
     if not hasattr(app.state, "indicator_publisher"):
         app.state.indicator_publisher = IndicatorPublisher(
             None,

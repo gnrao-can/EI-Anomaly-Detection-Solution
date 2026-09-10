@@ -49,6 +49,7 @@ _SIBLINGS = [
     "noc",
     "concurrent_employment",
     "narrative",
+    "llm_client",
     "kafka_publisher",
     "analysis",
     "main",
@@ -474,3 +475,93 @@ class TestAnalyzeEndpoint14_2:
         body = resp.json()
         assert len(body["indicators"]) == 1
         assert body["indicators"][0]["severity"] == "HIGH"
+
+
+# ===========================================================================
+# LLMServiceClient — narrative-contradiction HTTP seam + auth (Req 6.6 / 19.7)
+# ===========================================================================
+
+_llm_client_mod = load_service_module(_SERVICE, "llm_client", siblings=_SIBLINGS)
+LLMServiceClient = _llm_client_mod.LLMServiceClient
+
+
+def _run(coro):
+    import asyncio
+
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+class TestLLMServiceClient:
+    """The client POSTs to /llm/narrative-contradiction and attaches the Bearer."""
+
+    @staticmethod
+    def _patch_httpx(monkeypatch, body, capture):
+        import httpx
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            capture["url"] = str(request.url)
+            capture["authorization"] = request.headers.get("authorization")
+            return httpx.Response(200, json=body)
+
+        real = httpx.AsyncClient
+
+        def _factory(*args, **kwargs):
+            kwargs["transport"] = httpx.MockTransport(handler)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(httpx, "AsyncClient", _factory)
+
+    def test_client_posts_and_maps_response(self, monkeypatch):
+        pytest.importorskip("httpx")
+        cap: dict = {}
+        self._patch_httpx(
+            monkeypatch,
+            {"contradicted": True, "evidence": "continued employment"},
+            cap,
+        )
+        client = LLMServiceClient("http://llm", bearer_token="tok-1")
+        result = _run(client("I was laid off", "CRA shows continued employment"))
+        assert result == {
+            "contradicted": True,
+            "evidence": "continued employment",
+        }
+        assert cap["url"].endswith("/llm/narrative-contradiction")
+        assert cap["authorization"] == "Bearer tok-1"
+
+    def test_client_no_bearer_when_token_absent(self, monkeypatch):
+        pytest.importorskip("httpx")
+        cap: dict = {}
+        self._patch_httpx(monkeypatch, {"contradicted": False, "evidence": ""}, cap)
+        client = LLMServiceClient("http://llm")  # no token
+        result = _run(client("n", "e"))
+        assert result["contradicted"] is False
+        assert cap["authorization"] is None
+
+
+class TestNarrativeCheckerWithHttpClient:
+    """End-to-end (in-process): NarrativeContradictionChecker + real HTTP client
+    → CRITICAL contradiction Indicator (Req 6.6)."""
+
+    def test_contradiction_via_client_yields_critical(self, monkeypatch):
+        pytest.importorskip("httpx")
+        import httpx
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, json={"contradicted": True, "evidence": "still on payroll"}
+            )
+
+        real = httpx.AsyncClient
+        monkeypatch.setattr(
+            httpx,
+            "AsyncClient",
+            lambda *a, **k: real(*a, **{**k, "transport": httpx.MockTransport(handler)}),
+        )
+        client = LLMServiceClient("http://llm", bearer_token="tok")
+        checker = _narrative.NarrativeContradictionChecker(client, timeout_seconds=5.0)
+        indicators = _run(
+            checker.check("laid off", "continued employment", claim_id="c1")
+        )
+        assert len(indicators) == 1
+        assert indicators[0].severity == Severity.CRITICAL
+        assert indicators[0].algorithm == "llm_narrative_contradiction"

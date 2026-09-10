@@ -68,7 +68,8 @@ if _HAS_PYDANTIC_SETTINGS:
 
         # ── LLM narrative contradiction (task 14.2) ─────────────────
         # Base URL of the LLM Service used for narrative contradiction analysis.
-        llm_service_url: str = "http://llm-service:8020"
+        # Port 8005 matches the llm-service Containerfile's uvicorn port.
+        llm_service_url: str = "http://llm-service:8005"
         # LLM narrative-classification timeout (seconds). Design mandates 10 s
         # (Requirement 6.7). This wait is EXCLUDED from the 500 ms budget (6.9).
         llm_timeout_seconds: float = 10.0
@@ -117,7 +118,7 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
             )
 
             self.llm_service_url = os.environ.get(
-                "LLM_SERVICE_URL", "http://llm-service:8020"
+                "LLM_SERVICE_URL", "http://llm-service:8005"
             )
             self.llm_timeout_seconds = float(
                 os.environ.get("LLM_TIMEOUT_SECONDS", "10.0")
