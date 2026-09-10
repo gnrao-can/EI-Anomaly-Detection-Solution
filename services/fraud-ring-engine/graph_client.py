@@ -90,16 +90,24 @@ class GraphServiceClient:
         http_client: Any,
         *,
         timeout_seconds: float = 5.0,
+        bearer_token: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._http = http_client
         self._timeout = timeout_seconds
+        # Internal GCKey Bearer presented to the auth-gated Graph Service
+        # (Req 19.7). ``None`` (unit tests) => no Authorization header.
+        self._headers = (
+            {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
+        )
 
     async def construct(self, payload: dict[str, Any]) -> ConstructResult:
         """Upsert the current claim's claimant/employer/edge into the graph."""
         url = f"{self._base_url}/graph/construct"
         try:
-            resp = await self._http.post(url, json=payload, timeout=self._timeout)
+            resp = await self._http.post(
+                url, json=payload, timeout=self._timeout, headers=self._headers
+            )
         except Exception:  # noqa: BLE001 - transport failure -> UNAVAILABLE
             return ConstructResult(status=GraphCallStatus.UNAVAILABLE)
 
@@ -132,7 +140,9 @@ class GraphServiceClient:
             payload["employer_bns"] = employer_bns
 
         try:
-            resp = await self._http.post(url, json=payload, timeout=self._timeout)
+            resp = await self._http.post(
+                url, json=payload, timeout=self._timeout, headers=self._headers
+            )
         except Exception:  # noqa: BLE001 - transport failure -> UNAVAILABLE
             return CommunityResult(status=GraphCallStatus.UNAVAILABLE)
 

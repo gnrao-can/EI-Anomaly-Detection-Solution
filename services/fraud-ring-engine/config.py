@@ -52,6 +52,16 @@ if _HAS_PYDANTIC_SETTINGS:
         # ── Graph Service (community detection — task 13.2) ─────────
         graph_service_url: str = "http://graph-service:8009"
 
+        # ── Internal service auth (Req 19.7) ────────────────────────
+        # Service Bearer token presented on the internal Business Registry
+        # Adapter + Graph Service calls. Every EI-ADS endpoint validates a GCKey
+        # Bearer (Req 19.7 / design "Token validation"), so the engine
+        # authenticates to each collaborator with its own service credential —
+        # mirroring the orchestrator's ORCHESTRATOR_SERVICE_TOKEN and the
+        # History/Regional/Geographic engines' SERVICE_TOKEN pattern. Empty in
+        # unit tests (no header sent).
+        service_token: str = ""
+
         # ── Timeouts ────────────────────────────────────────────────
         registry_timeout_seconds: float = 5.0
         graph_timeout_seconds: float = 5.0
@@ -114,6 +124,8 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
             self.graph_service_url = os.environ.get(
                 "GRAPH_SERVICE_URL", "http://graph-service:8009"
             )
+            # Internal service Bearer token (Req 19.7); empty in unit tests.
+            self.service_token = os.environ.get("SERVICE_TOKEN", "")
             self.registry_timeout_seconds = float(
                 os.environ.get("REGISTRY_TIMEOUT_SECONDS", "5.0")
             )

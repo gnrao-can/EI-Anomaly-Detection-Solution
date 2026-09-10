@@ -368,3 +368,68 @@ class TestAnalyzeEndpointBoundaries:
         assert not any(
             i["algorithm"] == "cohort_hours_band" for i in body["indicators"]
         )
+
+
+# ===========================================================================
+# Engine -> dependency authentication (Req 19.7)
+#
+# The Business Registry Adapter (/registry/employer/{bn}) and the Graph Service
+# (/graph/*) are auth-gated (require_role(INVESTIGATOR)). The engine's clients
+# must present the service Bearer token when one is configured, and send NO
+# Authorization header when it is absent (unit tests / no credential).
+# ===========================================================================
+
+
+class _HeaderCapturingHttp:
+    """Async httpx-like client that records the headers of the last call."""
+
+    def __init__(self, body: Any) -> None:
+        self._body = body
+        self.last_headers: Any = "UNSET"
+
+    async def get(self, url: str, *args: Any, **kwargs: Any) -> Any:
+        self.last_headers = kwargs.get("headers")
+        return _FakeResponse(self._body)
+
+    async def post(self, url: str, *args: Any, **kwargs: Any) -> Any:
+        self.last_headers = kwargs.get("headers")
+        return _FakeResponse(self._body)
+
+
+class TestEngineDependencyAuth:
+    """Each dependency client attaches (or omits) the service Bearer (Req 19.7)."""
+
+    BusinessRegistryAdapterClient = _client.BusinessRegistryAdapterClient
+    GraphServiceClient = _graph_client.GraphServiceClient
+
+    def test_registry_client_sends_bearer_when_token_set(self):
+        http = _HeaderCapturingHttp({"bn": "x", "status": "OK", "registrations": []})
+        client = self.BusinessRegistryAdapterClient(
+            "http://reg", http, bearer_token="tok-123"
+        )
+        _run(client.lookup_employer("123456789RT0001"))
+        assert http.last_headers == {"Authorization": "Bearer tok-123"}
+
+    def test_registry_client_no_header_when_token_absent(self):
+        http = _HeaderCapturingHttp({"bn": "x", "status": "OK", "registrations": []})
+        client = self.BusinessRegistryAdapterClient("http://reg", http)
+        _run(client.lookup_employer("123456789RT0001"))
+        assert http.last_headers is None
+
+    def test_graph_construct_sends_bearer_when_token_set(self):
+        http = _HeaderCapturingHttp({"status": "ok"})
+        client = self.GraphServiceClient("http://graph", http, bearer_token="tok-456")
+        _run(client.construct({"sin_hash": "s", "employer_bn": "b"}))
+        assert http.last_headers == {"Authorization": "Bearer tok-456"}
+
+    def test_graph_community_detect_sends_bearer_when_token_set(self):
+        http = _HeaderCapturingHttp({"partition": {"s0": 0}, "num_communities": 1})
+        client = self.GraphServiceClient("http://graph", http, bearer_token="tok-789")
+        _run(client.community_detect(employer_bns=["b"]))
+        assert http.last_headers == {"Authorization": "Bearer tok-789"}
+
+    def test_graph_client_no_header_when_token_absent(self):
+        http = _HeaderCapturingHttp({"partition": {}, "num_communities": 0})
+        client = self.GraphServiceClient("http://graph", http)
+        _run(client.community_detect(employer_bns=["b"]))
+        assert http.last_headers is None

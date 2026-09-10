@@ -112,15 +112,20 @@ async def lifespan(app: FastAPI):
     if not settings.is_development and _HAS_HTTPX:  # pragma: no cover - live only
         client = httpx.AsyncClient()
         app.state.http_client = client
+        # Internal GCKey service Bearer presented to the auth-gated Business
+        # Registry Adapter + Graph Service (Req 19.7); empty => no header.
+        service_token = getattr(settings, "service_token", "") or None
         app.state.registry_client = BusinessRegistryAdapterClient(
             settings.business_registry_adapter_url,
             client,
             timeout_seconds=settings.registry_timeout_seconds,
+            bearer_token=service_token,
         )
         app.state.graph_client = GraphServiceClient(
             settings.graph_service_url,
             client,
             timeout_seconds=settings.graph_timeout_seconds,
+            bearer_token=service_token,
         )
 
     try:

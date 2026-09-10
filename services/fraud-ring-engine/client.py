@@ -93,16 +93,24 @@ class BusinessRegistryAdapterClient:
         http_client: Any,
         *,
         timeout_seconds: float = 5.0,
+        bearer_token: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._http = http_client
         self._timeout = timeout_seconds
+        # Internal GCKey Bearer presented to the auth-gated Business Registry
+        # Adapter (Req 19.7). ``None`` (unit tests) => no Authorization header.
+        self._headers = (
+            {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
+        )
 
     async def lookup_employer(self, bn: str) -> RegistrationLookup:
         """Look up an employer BN; degrade gracefully on any failure."""
         url = f"{self._base_url}/registry/employer/{bn}"
         try:
-            resp = await self._http.get(url, timeout=self._timeout)
+            resp = await self._http.get(
+                url, timeout=self._timeout, headers=self._headers
+            )
         except Exception:  # noqa: BLE001 - transport failure -> UNAVAILABLE
             return RegistrationLookup(status=RegistryLookupStatus.UNAVAILABLE)
 
@@ -235,10 +243,15 @@ class HttpCohortSource:
         http_client: Any,
         *,
         timeout_seconds: float = 5.0,
+        bearer_token: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._http = http_client
         self._timeout = timeout_seconds
+        # Internal GCKey Bearer (Req 19.7); ``None`` (unit tests) => no header.
+        self._headers = (
+            {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
+        )
 
     async def load_cohort(
         self,
@@ -252,6 +265,7 @@ class HttpCohortSource:
             url,
             params={"as_of": as_of.isoformat(), "window_days": window_days},
             timeout=self._timeout,
+            headers=self._headers,
         )
         data = resp.json()
         records = data.get("members", data) if isinstance(data, dict) else data
