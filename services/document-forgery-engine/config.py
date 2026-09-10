@@ -93,8 +93,8 @@ if _HAS_PYDANTIC_SETTINGS:
         cra_adapter_base_url: str = "http://cra-adapter:8011"
         cra_timeout_seconds: float = 5.0
         # LLM Service base URL for async termination-narrative style analysis
-        # (Requirements 7.8, 7.9).
-        llm_service_base_url: str = "http://llm-service:8020"
+        # (Requirements 7.8, 7.9). Port 8005 matches the llm-service Containerfile.
+        llm_service_base_url: str = "http://llm-service:8005"
         llm_timeout_seconds: float = 5.0
 
         @property
@@ -160,7 +160,7 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
                 os.environ.get("CRA_TIMEOUT_SECONDS", "5.0")
             )
             self.llm_service_base_url = os.environ.get(
-                "LLM_SERVICE_BASE_URL", "http://llm-service:8020"
+                "LLM_SERVICE_BASE_URL", "http://llm-service:8005"
             )
             self.llm_timeout_seconds = float(
                 os.environ.get("LLM_TIMEOUT_SECONDS", "5.0")

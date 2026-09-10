@@ -72,6 +72,7 @@ try:  # sibling modules imported by bare name in the service directory
         check_payroll_cross_reference,
     )
     from style_analysis import StyleAnalysisChecker  # type: ignore
+    from llm_style_client import LLMStyleServiceClient  # type: ignore
     from kafka_publisher import (  # type: ignore
         AIOKafkaProducerAdapter,
         IndicatorPublisher,
@@ -103,6 +104,7 @@ except ImportError:  # pragma: no cover - when imported as a package
         check_payroll_cross_reference,
     )
     from .style_analysis import StyleAnalysisChecker  # type: ignore
+    from .llm_style_client import LLMStyleServiceClient  # type: ignore
     from .kafka_publisher import (  # type: ignore
         AIOKafkaProducerAdapter,
         IndicatorPublisher,
@@ -159,6 +161,23 @@ async def lifespan(app: FastAPI):
         timeout_seconds=float(getattr(settings, "cra_timeout_seconds", 5.0)),
         bearer_token=getattr(settings, "service_token", "") or None,
     )
+
+    # LLM Service style-analysis checker (Req 7.8/7.9). Wired on real service
+    # startup (uvicorn lifespan); unit tests use TestClient WITHOUT its context
+    # manager, so the lifespan does not run and any injected fake is preserved.
+    # The client presents the engine's SERVICE_TOKEN Bearer (Req 19.7); the
+    # checker enforces the >=5-prior-ROE gate and turns a slow/failed LLM into
+    # "no style Indicator" (best-effort, off the 700 ms critical path).
+    if not hasattr(app.state, "style_checker"):
+        llm_timeout = float(getattr(settings, "llm_timeout_seconds", 5.0))
+        style_client = LLMStyleServiceClient(
+            getattr(settings, "llm_service_base_url", ""),
+            bearer_token=getattr(settings, "service_token", "") or None,
+            timeout_seconds=llm_timeout,
+        )
+        app.state.style_checker = StyleAnalysisChecker(
+            style_client, timeout_seconds=llm_timeout
+        )
     yield
     # Best-effort producer shutdown.
     if producer is not None:  # pragma: no cover - only with a live broker

@@ -476,3 +476,79 @@ async def test_cra_default_transport_no_header_when_token_absent(monkeypatch):
     lookup = await client.check_sin_in_payroll("h", "BN", "2024-01-01", "2024-06-01")
     assert lookup.not_found
     assert seen["authorization"] is None
+
+
+# ===========================================================================
+# LLMStyleServiceClient — style-analysis HTTP seam + auth (Req 7.8 / 19.7)
+# ===========================================================================
+
+_llm_style = load_service_module(
+    "document-forgery-engine", "llm_style_client", siblings=["llm_style_client"]
+)
+LLMStyleServiceClient = _llm_style.LLMStyleServiceClient
+
+
+def _run_async(coro):
+    import asyncio
+
+    return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def _patch_httpx_style(monkeypatch, body, capture):
+    import httpx
+
+    def handler(request: "httpx.Request") -> "httpx.Response":
+        capture["url"] = str(request.url)
+        capture["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, json=body)
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(
+        httpx,
+        "AsyncClient",
+        lambda *a, **k: real(*a, **{**k, "transport": httpx.MockTransport(handler)}),
+    )
+
+
+@pytest.mark.asyncio
+async def test_style_client_posts_and_attaches_bearer(monkeypatch):
+    pytest.importorskip("httpx")
+    cap: dict = {}
+    _patch_httpx_style(monkeypatch, {"inconsistent": True, "score": 0.83}, cap)
+    client = LLMStyleServiceClient("http://llm", bearer_token="tok-s")
+    result = await client("narrative", ["a", "b", "c"])
+    assert result["inconsistent"] is True
+    assert result["score"] == 0.83
+    assert cap["url"].endswith("/llm/style-analysis")
+    assert cap["authorization"] == "Bearer tok-s"
+
+
+@pytest.mark.asyncio
+async def test_style_client_no_bearer_when_token_absent(monkeypatch):
+    pytest.importorskip("httpx")
+    cap: dict = {}
+    _patch_httpx_style(monkeypatch, {"inconsistent": False, "score": 0.1}, cap)
+    client = LLMStyleServiceClient("http://llm")  # no token
+    result = await client("narrative", [])
+    assert result["inconsistent"] is False
+    assert cap["authorization"] is None
+
+
+@pytest.mark.asyncio
+async def test_style_checker_with_http_client_yields_medium(monkeypatch):
+    """StyleAnalysisChecker + the real HTTP client -> MEDIUM Indicator (Req 7.8)."""
+    pytest.importorskip("httpx")
+    cap: dict = {}
+    _patch_httpx_style(monkeypatch, {"inconsistent": True, "score": 0.9}, cap)
+    client = LLMStyleServiceClient("http://llm", bearer_token="tok")
+    checker = StyleAnalysisChecker(client, timeout_seconds=5.0)
+    # >= 5 prior ROEs so the check runs (Req 7.9 gate satisfied).
+    indicators = await checker.check(
+        "odd narrative",
+        ["p1", "p2", "p3", "p4", "p5"],
+        prior_authenticated_roe_count=5,
+        claim_id="c1",
+    )
+    assert len(indicators) == 1
+    assert indicators[0].severity == Severity.MEDIUM
+    assert indicators[0].algorithm == "llm_style_analysis"
