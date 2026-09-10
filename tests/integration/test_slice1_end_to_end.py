@@ -1740,3 +1740,297 @@ async def test_five_engines_with_fraud_ring_graph_seam_over_real_neo4j(
             neo4j.stop()
         os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
         os.environ.pop("SERVICE_TOKEN", None)
+
+
+# ===========================================================================
+# Slice 3+ — SIX engines including Document Forgery (engine #6) with the REAL
+# CRA payroll seam (Req 7.2/7.7/19.7), over real transports.
+#
+# The pipeline forwards the ROE fields it carries to the Document Forgery engine
+# as a nested ``document`` (orchestrator _build_engine_request). This test
+# proves, over real Kafka + loopback HTTP + real GCKey JWKS auth + the REAL CRA
+# adapter:
+#   * Req 7.2 date-order CRITICAL — the forwarded last_day_paid (separation date)
+#     precedes first_day_worked (claim start), an impossible ROE date order.
+#   * Req 7.7 payroll CRITICAL — the claimant SIN (a ``ghost-`` marker) is
+#     confirmed ABSENT from the employer's payroll by the real CRA adapter
+#     /cra/payroll call, authenticated with the engine's SERVICE_TOKEN Bearer.
+# With >=3 engines completing the decision is determinate NON-AUTO_APPROVE.
+#
+# OCR is the LayoutLMv3 plug-in point (stub here — the model is a deployment
+# concern). The hours*rate consistency check (7.2a), font (7.4), signature
+# (7.5/7.6), and LLM style (7.8) are NOT fed from claim.received/roe.received
+# and are honestly not exercised in-pipeline (no hourly_rate / document / registry
+# source) — see docs/regeneration/STATUS.md.
+# ===========================================================================
+
+
+def _start_document_forgery_engine(jwks_url: str, cra_url: str) -> "LoopbackService":
+    """Start Document Forgery wired to the REAL CRA adapter (payroll, Req 7.7)."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    os.environ["USE_STUB_OCR"] = "true"
+    os.environ["CRA_ADAPTER_BASE_URL"] = cra_url
+    _reset_service_settings("document-forgery-engine")
+    engine_main = load_service_module(
+        "document-forgery-engine",
+        "main",
+        siblings=[
+            "config", "ocr", "consistency", "metadata_forensics",
+            "font_fingerprint", "signature_verification", "style_analysis",
+            "payroll_cross_reference", "roe_canonical", "kafka_publisher", "main",
+        ],
+    )
+    # The engine builds its CRA payroll client in the lifespan from the freshly
+    # set settings (CRA_ADAPTER_BASE_URL + SERVICE_TOKEN); LoopbackService runs
+    # the lifespan on start(), so no app.state fix-up is needed here.
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_six_engines_with_document_forgery_cra_payroll_over_real_transports(
+    itest_service_auth,
+):
+    """Document Forgery (engine #6) over the real CRA payroll seam -> CRITICAL.
+
+    A ghost-SIN forged ROE (last_day_paid before first_day_worked) runs the
+    6-engine pipeline: Document Forgery produces a Req 7.2 date-order CRITICAL
+    and a Req 7.7 payroll CRITICAL (SIN confirmed absent by the real CRA adapter,
+    authenticated with the engine's SERVICE_TOKEN). With >=3 engines completing
+    the decision is determinate NON-AUTO_APPROVE. The CRA adapter 401s without
+    the Bearer (Req 19.7).
+    """
+    from testcontainers.kafka import KafkaContainer  # guarded import
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
+    correlator_mod, engine_dispatch_mod, scoring_mod, publisher_mod, consumer_mod = (
+        _load_orchestrator_modules()
+    )
+    EventCorrelator = correlator_mod.EventCorrelator
+    InMemoryPairingStore = correlator_mod.InMemoryPairingStore
+    CLAIM_RECEIVED = correlator_mod.CLAIM_RECEIVED
+    ROE_RECEIVED = correlator_mod.ROE_RECEIVED
+
+    EngineDispatcher = engine_dispatch_mod.EngineDispatcher
+    EngineType = engine_dispatch_mod.EngineType
+    ALL_ENGINES = engine_dispatch_mod.ALL_ENGINES
+    ENGINE_ANALYZE_PATH = engine_dispatch_mod.ENGINE_ANALYZE_PATH
+    MIN_ENGINES_REQUIRED = engine_dispatch_mod.MIN_ENGINES_REQUIRED
+
+    ScoringClient = scoring_mod.ScoringClient
+    HttpxScorerCaller = scoring_mod.HttpxScorerCaller
+
+    ResultPublisher = publisher_mod.ResultPublisher
+    AIOKafkaProducerAdapter = publisher_mod.AIOKafkaProducerAdapter
+    CLAIM_SCORED_TOPIC = publisher_mod.CLAIM_SCORED_TOPIC
+
+    OrchestratorConsumer = consumer_mod.OrchestratorConsumer
+
+    from shared.models import RiskDecision, EngineType as _ET, Severity as _Sev
+
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    os.environ["ORCHESTRATOR_SERVICE_TOKEN"] = token
+    os.environ["SERVICE_TOKEN"] = token
+
+    employer_bn = "987654321RT0001"
+    services: list = []
+    kafka = None
+    orchestrator_consumer = producer = scored_consumer = kafka_adapter = None
+    scoring_client = None
+    try:
+        # ── CRA adapter (real payroll seam) + Document Forgery engine. ──────
+        cra = _start_cra_adapter(jwks_url)
+        docf = _start_document_forgery_engine(jwks_url, cra.base_url)
+        # Three light engines so >=3 complete; the other two absent.
+        rpe = _start_repetitive_pattern_engine(jwks_url)
+        history = _start_history_inconsistency_engine(jwks_url)
+        regional = _start_regional_analysis_engine(jwks_url)
+        scorer = _start_ensemble_scorer(jwks_url)
+        services = [cra, docf, rpe, history, regional, scorer]
+
+        # Warm the shared JWKS cache once.
+        warm = httpx.post(
+            f"{rpe.base_url}{ENGINE_ANALYZE_PATH}",
+            json={"sin_hash": "warmup"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+        assert warm.status_code == 200, warm.text
+
+        # Sanity-check the real CRA payroll seam directly (Req 19.7 + 7.7): the
+        # ghost SIN is confirmed absent WITH the Bearer, and 401s WITHOUT it.
+        pay_url = f"{cra.base_url}/cra/payroll/ghost-itest/{employer_bn}"
+        pay_ok = httpx.get(
+            pay_url,
+            params={"start": "2024-03-01", "end": "2024-01-15"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+        assert pay_ok.status_code == 200, pay_ok.text
+        assert pay_ok.json()["sin_in_payroll"] is False, pay_ok.text
+        pay_401 = httpx.get(
+            pay_url, params={"start": "2024-03-01", "end": "2024-01-15"}, timeout=5.0
+        )
+        assert pay_401.status_code == 401, "CRA payroll must reject unauthenticated"
+
+        dead_port = _closed_loopback_port()
+        real = {
+            EngineType.DOCUMENT_FORGERY: docf.base_url,
+            EngineType.REPETITIVE_PATTERN: rpe.base_url,
+            EngineType.HISTORY_INCONSISTENCY: history.base_url,
+            EngineType.REGIONAL_ANALYSIS: regional.base_url,
+        }
+        endpoints = {}
+        for engine in ALL_ENGINES:
+            base = real.get(engine, f"http://127.0.0.1:{dead_port}")
+            endpoints[engine] = f"{base}{ENGINE_ANALYZE_PATH}"
+        timeouts = {engine: 5000 for engine in ALL_ENGINES}
+
+        kafka = KafkaContainer()
+        kafka.start()
+        bootstrap = kafka.get_bootstrap_server()
+
+        dispatcher = EngineDispatcher(endpoints=endpoints, timeouts_ms=timeouts)
+        scoring_client = ScoringClient(
+            HttpxScorerCaller(base_url=scorer.base_url), budget_ms=5000
+        )
+        kafka_adapter = AIOKafkaProducerAdapter(bootstrap_servers=bootstrap)
+        result_publisher = ResultPublisher(kafka_adapter, audit_sink=None)
+
+        captured: dict = {}
+
+        async def dispatch_callback(pair):
+            dispatch = await dispatcher.dispatch(pair.claim_payload, pair.roe_payload)
+            captured["dispatch"] = dispatch
+            outcome = await scoring_client.score(
+                dispatch.indicators,
+                dispatch.claim_id,
+                dispatch.engines_completed,
+                dispatch.engines_partial,
+                indeterminate=dispatch.indeterminate,
+            )
+            captured["outcome"] = outcome
+            await result_publisher.publish_scored(dispatch.claim_id, outcome)
+
+        store = InMemoryPairingStore()
+        correlator = EventCorrelator(store)
+        orchestrator_consumer = OrchestratorConsumer(
+            correlator,
+            dispatch_callback,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3plus-docf-orchestrator",
+            degrade_gracefully=False,
+        )
+        assert await orchestrator_consumer.start() is True
+
+        scored_consumer = AIOKafkaConsumer(
+            CLAIM_SCORED_TOPIC,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3plus-docf-assert",
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+        )
+        await scored_consumer.start()
+
+        # ── Produce the forged-ROE paired events. sin_hash 'ghost-...' -> CRA
+        #    payroll ABSENT (7.7). separation_date (last_day_paid) 2024-03-01
+        #    PRECEDES claim_start_date (first_day_worked) 2024-06-01 -> impossible
+        #    date order (7.2). ──────────────────────────────────────────────
+        claim_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        claim_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "ghost-" + ("d" * 58),
+            "employer_bn": employer_bn,
+            "insurable_hours": "800",
+            "insurable_earnings": "25000",
+            "separation_date": "2024-03-01",   # -> last_day_paid
+            "claim_start_date": "2024-06-01",  # -> first_day_worked (later!)
+            "economic_region_code": "35",
+            "noc_code": "12345",
+            "received_at": now,
+        }
+        roe_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "ghost-" + ("d" * 58),
+            "employer_bn": employer_bn,
+            "insurable_earnings": "25000",
+            "received_at": now,
+        }
+
+        producer = AIOKafkaProducer(bootstrap_servers=bootstrap)
+        await producer.start()
+        for event_type, payload in (
+            (CLAIM_RECEIVED, claim_payload),
+            (ROE_RECEIVED, roe_payload),
+        ):
+            envelope = {"event_type": event_type, "claim_id": claim_id, "payload": payload}
+            await producer.send_and_wait(
+                event_type,
+                value=json.dumps(envelope).encode("utf-8"),
+                key=claim_id.encode("utf-8"),
+            )
+
+        scored = None
+        deadline = asyncio.get_event_loop().time() + 40.0
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                msg = await asyncio.wait_for(scored_consumer.getone(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
+            event = json.loads(msg.value.decode("utf-8"))
+            if event.get("claim_id") == claim_id:
+                scored = event
+                break
+
+        # ── Assertions: Document Forgery's real evidence over transports. ───
+        dispatch = captured["dispatch"]
+        assert EngineType.DOCUMENT_FORGERY in dispatch.engines_completed, (
+            dispatch.engines_completed
+        )
+        assert dispatch.completed_count >= MIN_ENGINES_REQUIRED
+        assert dispatch.indeterminate is False
+        assert captured["outcome"].fallback is False
+
+        docf_inds = [i for i in dispatch.indicators if i.engine == _ET.DOCUMENT_FORGERY]
+        algos = {i.algorithm for i in docf_inds}
+        # Req 7.7 payroll CRITICAL via the REAL CRA adapter call.
+        payroll = [i for i in docf_inds if i.algorithm == "payroll_cross_reference"]
+        assert payroll and payroll[0].severity == _Sev.CRITICAL, sorted(algos)
+        assert payroll[0].payload.get("flag") == "SIN_NOT_IN_PAYROLL"
+        # Req 7.2 date-order CRITICAL from the forwarded ROE dates.
+        date_order = [i for i in docf_inds if i.algorithm == "date_order_consistency"]
+        assert date_order and date_order[0].severity == _Sev.CRITICAL, sorted(algos)
+
+        # The determinate decision reflects the CRITICAL forgery evidence.
+        assert scored is not None, "no claim.scored event observed for the claim"
+        assert scored["claim_id"] == claim_id
+        assert scored["risk_decision"] != RiskDecision.INDETERMINATE.value
+        assert scored["risk_decision"] != RiskDecision.AUTO_APPROVE.value, (
+            f"CRITICAL forgery evidence should lift the score out of AUTO_APPROVE; "
+            f"got {scored['risk_decision']} @ {scored['risk_score']}"
+        )
+        assert scored["risk_decision"] in {
+            RiskDecision.FLAG_FOR_REVIEW.value,
+            RiskDecision.INVESTIGATE.value,
+        }
+        assert isinstance(scored["risk_score"], int)
+    finally:
+        if producer is not None:
+            await producer.stop()
+        if scored_consumer is not None:
+            await scored_consumer.stop()
+        if orchestrator_consumer is not None:
+            await orchestrator_consumer.stop()
+        if kafka_adapter is not None:
+            await kafka_adapter.stop()
+        if scoring_client is not None:
+            await scoring_client.aclose()
+        if kafka is not None:
+            kafka.stop()
+        for svc in services:
+            svc.stop()
+        os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
+        os.environ.pop("SERVICE_TOKEN", None)
