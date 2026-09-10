@@ -201,47 +201,159 @@ class StubOCRExtractor(OCRExtractor):
         return round(0.90 + (digest[0] / 255.0) * 0.09, 4)
 
 
+#: Normalise a model label to a MANDATORY_ROE_FIELDS name. Strips IOB/BILOU
+#: prefixes (``B-``, ``I-``, ``E-``, ``S-``, ``L-``, ``U-``) and lower-cases, so
+#: a fine-tuned checkpoint labelled e.g. ``B-TOTAL_INSURABLE_HOURS`` maps onto
+#: ``total_insurable_hours``. Labels that are not one of the 11 fields (incl. the
+#: ``O`` "outside" tag) map to ``None`` and are ignored during grouping.
+def _label_to_field(label: str) -> Optional[str]:
+    if not label:
+        return None
+    text = str(label).strip()
+    for prefix in ("B-", "I-", "E-", "S-", "L-", "U-"):
+        if text.upper().startswith(prefix):
+            text = text[len(prefix):]
+            break
+    normalised = text.strip().lower()
+    return normalised if normalised in set(MANDATORY_ROE_FIELDS) else None
+
+
 class LayoutLMv3OCRExtractor(OCRExtractor):  # pragma: no cover - requires heavy deps
     """Production OCR extractor backed by LayoutLMv3 via ``transformers``.
 
-    The ``transformers``/``torch`` stack is imported lazily so that merely
-    importing this module (e.g. during unit-test collection) never pulls in the
-    multi-gigabyte dependency. Construction loads the fine-tuned
-    token-classification checkpoint referenced by ``model_path``.
+    The ``transformers``/``torch``/``PIL`` stack is imported lazily so that
+    merely importing this module (e.g. during unit-test collection) never pulls
+    in the multi-gigabyte dependency. Construction loads the fine-tuned
+    LayoutLMv3 token-classification checkpoint referenced by ``model_path`` (a
+    Hugging Face id or a local artefact directory).
+
+    The checkpoint is expected to be fine-tuned to label ROE tokens with the 11
+    :data:`MANDATORY_ROE_FIELDS` (optionally IOB-prefixed); :func:`_label_to_field`
+    maps its ``id2label`` scheme onto the canonical field names. This class does
+    NOT ship or train that checkpoint — it is the inference wiring behind the
+    plug-in point, exercised by the model-gated smoke test when a checkpoint is
+    provided via ``DOC_FORGERY_LAYOUTLM_MODEL``.
     """
 
     source = "layoutlmv3"
 
     def __init__(self, model_path: str) -> None:
-        # Lazy, guarded import: the sandbox does not have these packages.
+        # Lazy, guarded imports: the sandbox does not have these packages.
+        import torch  # type: ignore  # noqa: F401
         from transformers import (  # type: ignore
             LayoutLMv3ForTokenClassification,
             LayoutLMv3Processor,
         )
 
+        self._torch = torch
         self._processor = LayoutLMv3Processor.from_pretrained(model_path)
         self._model = LayoutLMv3ForTokenClassification.from_pretrained(model_path)
         self._model.eval()
+        # id2label from the checkpoint config (fallback to a generic map).
+        self._id2label = dict(getattr(self._model.config, "id2label", {}) or {})
+
+    # ------------------------------------------------------------------
+    # Rendering
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _render_image(document: dict[str, Any]) -> Any:
+        """Render the ROE document to an RGB PIL image for LayoutLMv3.
+
+        Accepts (in priority order): an already-open PIL image under
+        ``document["image"]``; a raster image path/bytes under ``image_path`` /
+        ``image_bytes``; or the first page of a PDF under ``pdf_path`` /
+        ``pdf_bytes`` (rendered via ``pdf2image`` when available). Raises
+        ``ValueError`` when no renderable input is present.
+        """
+        from PIL import Image  # type: ignore
+        import io
+
+        img = document.get("image")
+        if img is not None:
+            return img.convert("RGB")
+
+        image_path = document.get("image_path")
+        if image_path:
+            return Image.open(image_path).convert("RGB")
+
+        image_bytes = document.get("image_bytes")
+        if image_bytes:
+            return Image.open(io.BytesIO(image_bytes)).convert("RGB")
+
+        pdf_path = document.get("pdf_path")
+        pdf_bytes = document.get("pdf_bytes") or document.get("pdf")
+        if pdf_path or pdf_bytes:
+            from pdf2image import convert_from_path, convert_from_bytes  # type: ignore
+
+            pages = (
+                convert_from_path(pdf_path, first_page=1, last_page=1)
+                if pdf_path
+                else convert_from_bytes(pdf_bytes, first_page=1, last_page=1)
+            )
+            if pages:
+                return pages[0].convert("RGB")
+
+        raise ValueError(
+            "LayoutLMv3OCRExtractor requires a renderable document "
+            "(image / image_path / image_bytes / pdf_path / pdf_bytes)."
+        )
+
+    # ------------------------------------------------------------------
+    # Extraction
+    # ------------------------------------------------------------------
 
     def extract(self, document: dict[str, Any]) -> ExtractedFields:
-        # >>> REAL LAYOUTLMV3 PLUG-IN POINT <<<
-        # Production wiring goes here:
-        #   1. Render the ROE PDF/image to a PIL image (pillow).
-        #   2. encoding = self._processor(image, return_tensors="pt")
-        #   3. logits = self._model(**encoding).logits
-        #   4. probs = logits.softmax(-1); take argmax label + its probability
-        #      as the per-token confidence, then group tokens into the 11
-        #      MANDATORY_ROE_FIELDS spans and record the min token confidence
-        #      per field as that field's confidence.
-        #   5. Populate ExtractedFields(values=..., confidences=..., source="layoutlmv3").
-        # The returned structure MUST cover all 11 MANDATORY_ROE_FIELDS so the
-        # low-confidence flagging and consistency checks behave identically to
-        # the stub path.
-        raise NotImplementedError(
-            "LayoutLMv3 inference is not wired in this build; the deterministic "
-            "StubOCRExtractor is used in dev/test. Implement the plug-in point "
-            "marked above to enable real OCR."
-        )
+        """Extract the 11 mandatory ROE fields + per-field confidences.
+
+        Pipeline (design step 1): render -> processor -> model logits -> per-token
+        argmax label + softmax probability. Tokens are grouped by their mapped
+        field (:func:`_label_to_field`); each field's value is the joined token
+        text and its confidence is the MIN token probability across the field's
+        tokens (the weakest link, matching the design's per-field confidence).
+        Any of the 11 fields not detected in the document is emitted with an
+        empty value and confidence 0.0 so the low-confidence flagging (Req 7.1)
+        and the consistency checks behave identically to the stub path.
+        """
+        torch = self._torch
+        image = self._render_image(document)
+
+        encoding = self._processor(image, return_tensors="pt")
+        with torch.no_grad():
+            logits = self._model(**encoding).logits  # (1, seq, num_labels)
+        probs = logits.softmax(-1)[0]
+        conf_tensor, pred_ids = probs.max(-1)
+        pred_ids = pred_ids.tolist()
+        confidences_per_token = conf_tensor.tolist()
+
+        # Recover the token strings for value assembly.
+        input_ids = encoding["input_ids"][0].tolist()
+        tokens = self._processor.tokenizer.convert_ids_to_tokens(input_ids)
+
+        grouped_values: dict[str, list[str]] = {}
+        grouped_conf: dict[str, list[float]] = {}
+        for tok, label_id, conf in zip(tokens, pred_ids, confidences_per_token):
+            label = self._id2label.get(label_id, self._id2label.get(str(label_id), ""))
+            field = _label_to_field(label)
+            if field is None:
+                continue
+            grouped_values.setdefault(field, []).append(str(tok))
+            grouped_conf.setdefault(field, []).append(float(conf))
+
+        values: dict[str, str] = {}
+        confidences: dict[str, float] = {}
+        for name in MANDATORY_ROE_FIELDS:
+            toks = grouped_values.get(name)
+            if toks:
+                # Detokenise defensively: drop the WordPiece ``▁``/``##`` markers.
+                text = "".join(toks).replace("\u2581", " ").replace("##", "").strip()
+                values[name] = text
+                confidences[name] = min(grouped_conf.get(name, [0.0]))
+            else:
+                values[name] = ""
+                confidences[name] = 0.0
+
+        return ExtractedFields(values=values, confidences=confidences, source=self.source)
 
 
 # ---------------------------------------------------------------------------
