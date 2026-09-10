@@ -69,6 +69,12 @@ mocked seams, which caused the prior fragility).
     as engine #6** with the REAL CRA payroll seam (Req 7.7) + the LayoutLMv3 OCR plug-in
     implemented (model-gated). **ALL SIX engines are now composed.** See "Slice 3+ — Document
     Forgery" below.
+12. (Slice 3+ — 40c4eb6, b2446fa, ac2c230, c45aa81, 3debe90) **LLM Service wired into the
+    pipeline** — two new classification endpoints (`/llm/narrative-contradiction` Req 6.6,
+    `/llm/style-analysis` Req 7.8), the History `narrative_checker` + Document Forgery
+    `style_checker` wired to them over real HTTP with the `SERVICE_TOKEN` Bearer, and the
+    LLM Service composed (8005). Deterministic seam live now; the real Llama 3.1 answer is
+    model-gated. See "Slice 3+ — LLM Service" below.
 
 ## Key finding (scope correction)
 The prior "systemic integration failure" was over-stated. The real pipeline-core defect
@@ -162,7 +168,9 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
   `TESTCONTAINERS_RYUK_DISABLED=true`, `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE`. Ryuk is
   disabled because it is unreliable under Podman; testcontainers' own context managers clean up.
 - Run: `scripts/itest-env.sh .venv-itest/bin/python -m pytest tests/integration -q`
-  (last verified: **32 passed** with the runtime up — incl. the Slice 3+ Geographic 4-engine
+  (the `test_slice1_end_to_end.py` file is last verified at **11 passed** with the runtime up,
+  incl. the 5 new LLM-Service seam tests; earlier runs reported **32 passed** across the whole
+  `tests/integration` dir — incl. the Slice 3+ Geographic 4-engine
   test, the Fraud Ring 5-engine test over REAL Neo4j, and the Document Forgery 6-engine test
   over the REAL CRA payroll seam; the suite skips cleanly without a daemon).
 - Server-guard: the agent cannot launch the daemon/servers; `podman machine start` and any
@@ -451,9 +459,82 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
     skipped in-pipeline (not faked). OCR is the LayoutLMv3 plug-in point (stub by default). A
     future slice could add a document-fetch + registry seam (and/or a fine-tuned LayoutLMv3
     checkpoint) to feed 7.3/7.4/7.5/7.6/7.8 and validate the OCR model end to end.
-- **Slice 3+ remaining**: none — all six detection engines are composed and integration-tested.
-  Next: LLM services (narrative contradiction Req 6.6, style analysis Req 7.8) + the Ensemble
-  real ML models; then the k8s deploy + p99 ≤ 2000 ms load checkpoint.
+- **Slice 3+ — LLM Service (DONE)**: the LLM Service (8005) is now **wired into the pipeline**
+  as the classification backend for two engine checks. Chosen path: **B1 + Option A** —
+  the two engines call dedicated classification endpoints (B1, "THE LLM_Service SHALL
+  classify…", Req 6.6/7.8), and the seam runs a DETERMINISTIC classifier live with the real
+  Llama 3.1 answer as a model-gated plug-in (Option A — the same posture as LayoutLMv3 for
+  Document Forgery). No GGUF weights ship here; the endpoints run on the guarded StubLLM +
+  hashing-similarity path and return `source:"deterministic"`. Details:
+  - **Two classification endpoints (40c4eb6, Req 6.6 / 7.8).** `services/llm-service/main.py`
+    gained `POST /llm/narrative-contradiction` → `{contradicted, evidence, source}` and
+    `POST /llm/style-analysis` → `{inconsistent, score, source}`, both auth-gated
+    `require_role(Role.INVESTIGATOR)` (Req 19.7). New `services/llm-service/classification.py`:
+    `classify_contradiction` (a separation cue in the narrative + a continued-employment cue in
+    the CRA evidence → contradicted) and `classify_style_inconsistency` (max cosine similarity of
+    the narrative to the prior-ROE corpus via the real `NarrativeSimilarity`; `score = 1 −
+    max_sim`; inconsistent when `max_sim ≤ 0.40`). The deterministic classifier is authoritative;
+    the real Llama YES/NO is honoured only when `chain.is_stub is False` (weights present). We do
+    NOT route through the StubLLM (which only echoes prompts) and pretend it "reasoned". 55 llm
+    unit tests pass.
+  - **History `narrative_checker` wired (b2446fa, Req 6.6/6.7).** New
+    `history-inconsistency-engine/llm_client.py` (`LLMServiceClient`: async `(narrative,
+    cra_evidence) → {contradicted, evidence}`, POST to `/llm/narrative-contradiction`, forwards
+    the `SERVICE_TOKEN` Bearer). The lifespan now builds
+    `app.state.narrative_checker = NarrativeContradictionChecker(client, 10 s)` — it was
+    previously left `None`, so the 6.6 check never ran in a real deployment. A contradiction →
+    ONE **CRITICAL** `llm_narrative_contradiction` Indicator; a slow/failed LLM →
+    `NARRATIVE_ANALYSIS_TIMEOUT`-flagged UNRESOLVED Indicator (Req 6.7), off the 500 ms core
+    budget. 40 history tests pass.
+  - **Document Forgery `style_checker` wired (ac2c230, Req 7.8/7.9).** New
+    `document-forgery-engine/llm_style_client.py` (`LLMStyleServiceClient`: async `(narrative,
+    corpus) → {inconsistent, score}`, POST to `/llm/style-analysis`, forwards the `SERVICE_TOKEN`
+    Bearer). The lifespan now builds `app.state.style_checker = StyleAnalysisChecker(client, 5 s)`
+    — it was **never set** before, so `_run_style_analysis` always read `None`. Inconsistent →
+    ONE **MEDIUM** `llm_style_analysis` Indicator (`flag STYLE_INCONSISTENT`, Req 7.8); a corpus
+    of < 5 prior authenticated ROEs → the check is SKIPPED (Req 7.9); timeout/error → no Indicator
+    (best-effort, off the 700 ms critical path). 65 doc-forgery tests pass.
+  - **Port fix 8020 → 8005 (b2446fa + ac2c230).** Both engines defaulted their LLM URL to `:8020`
+    (which is actually the Regional Analysis engine's port); the LLM Service serves `:8005`
+    (its Containerfile `EXPOSE`/uvicorn). Fixed the default in both config branches of each engine
+    (`llm_service_url` for History, `llm_service_base_url` for Document Forgery).
+  - **Containerfile rootless build fix (c45aa81).** `services/llm-service/Containerfile` is the
+    only service that runs `dnf install` (build tools for `llama-cpp-python`; `libstdc++`
+    runtime), but the `ubi9/python-311` base runs as `USER 1001`, so both steps failed with a
+    superuser error. Bracketed each `dnf` step with `USER 0` / `USER 1001`. The
+    `llama-cpp-python` build dependency is RETAINED (it is the real-Llama plug-in path).
+  - **Compose (c45aa81).** `podman-compose.yml` gained the `llm-service` (8005, internal-only,
+    `GCKEY_JWKS_URL → jwks` so its endpoints validate the INVESTIGATOR Bearer), and the two
+    consumer engines got `LLM_SERVICE_URL` / `LLM_SERVICE_BASE_URL = http://llm-service:8005`.
+    Verified LIVE on the compose network: `/healthz` 200 (no auth); `/llm/narrative-contradiction`
+    401 no-Bearer / 200 with INVESTIGATOR Bearer (`contradicted:true, source:deterministic`);
+    `/llm/style-analysis` 401 / 200 (`inconsistent:true, score≈0.81, source:deterministic`).
+    `podman-compose config` lints clean.
+  - **Integration tests over real transports (3debe90).** Five new tests in
+    `tests/integration/test_slice1_end_to_end.py` exercise the seam over real loopback HTTP +
+    real GCKey JWKS auth (each engine builds its real HTTP client in its lifespan and crosses a
+    real socket to a loopback LLM Service running its real deterministic classifiers):
+    (1) LLM Service `/healthz` open + both endpoints 401 no-Bearer / 200 INVESTIGATOR (Req 19.7);
+    (2) History → LLM → **CRITICAL** contradiction Indicator (Req 6.6);
+    (3) History with the LLM URL at a closed port → **NARRATIVE_ANALYSIS_TIMEOUT** flag, engine
+    proceeds (Req 6.7);
+    (4) Doc Forgery with a ≥5-ROE corpus + a distant narrative → **MEDIUM** `STYLE_INCONSISTENT`
+    (Req 7.8);
+    (5) Doc Forgery with a 4-ROE corpus → style check skipped, no Indicator (Req 7.9).
+    Verified LIVE: the 5 new pass; the full `test_slice1_end_to_end.py` file is **11 passed**
+    (no regressions) via `.venv-itest` with the forwarded Podman socket.
+  - **GROUNDING NOTE — narrative/corpus inputs are engine-request fields, not yet pipeline-fed.**
+    The History narrative check needs `separation_narrative` + `cra_continued_employment_evidence`
+    on the AnalyzeRequest, and the Doc Forgery style check needs `document.termination_narrative`
+    + a `document_registry.prior_roe_narratives` corpus. These are honoured when supplied
+    directly to the engine (integration-tested above), but the orchestrator's
+    `claim.received`/`roe.received` events carry no source for them today, so in the running
+    pipeline the two LLM checks are honestly SKIPPED (checker no-ops on empty inputs) rather than
+    faked — the same posture as the other document-registry-backed Document Forgery checks. A
+    future slice could add a narrative/registry seam to feed them end to end.
+- **Slice 3+ remaining**: none — all six detection engines are composed and integration-tested,
+  and the LLM Service is wired for its two classification checks. Next: the Ensemble real ML
+  models (XGBoost/IsolationForest); then the k8s deploy + p99 ≤ 2000 ms load checkpoint.
 - **Heavy-ML last**: Document Forgery (LayoutLM), Fraud Ring (GNN), LLM (Llama), Ensemble
   real models (XGBoost/IsolationForest) — need full stack / containers, not .venv-core.
 - **Final**: CP37-style k8s deploy + load (p99 ≤ 2000 ms) as the TRUE integration checkpoint.
@@ -465,7 +546,9 @@ claim-intake, roe-adapter, pipeline-orchestrator, **all six engines** (repetitiv
 history-inconsistency, regional-analysis, geographic-anomaly, fraud-ring, document-forgery),
 **seven adapters** (cra, stats-canada, job-bank, geonames, mvr, cbsa, business-registry), the
 **Graph Service backed by REAL Neo4j** (the Fraud Ring graph relationship seam, Req 5.1/5.5/5.10),
-ensemble-scorer, portal-backend, claimant-portal — behind a Caddy single-origin proxy, with a
+the **LLM Service** (8005 — narrative-contradiction Req 6.6 + style-analysis Req 7.8; StubLLM in
+dev, real Llama model-gated), ensemble-scorer, portal-backend, claimant-portal — behind a Caddy
+single-origin proxy, with a
 local-dev JWKS + signed INVESTIGATOR service token for internal GCKey Bearer validation
 (Req 19.7 faithful; no bypass). `podman-compose config` lints clean; the engine, adapter, and
 portal-backend images were verified to BUILD and BOOT.
