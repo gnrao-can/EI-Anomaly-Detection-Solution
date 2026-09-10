@@ -104,10 +104,14 @@ class CRAPayrollClient:
         *,
         timeout_seconds: float = DEFAULT_CRA_TIMEOUT_SECONDS,
         transport: Optional[Transport] = None,
+        bearer_token: Optional[str] = None,
     ) -> None:
         self._base_url = base_url.rstrip("/")
         self._timeout_seconds = timeout_seconds
-        self._transport = transport or _build_default_transport()
+        # Internal GCKey Bearer presented to the auth-gated CRA Adapter
+        # (Req 19.7). ``None`` (unit tests) => no Authorization header. Ignored
+        # when an explicit ``transport`` is injected (tests supply their own).
+        self._transport = transport or _build_default_transport(bearer_token)
 
     async def check_sin_in_payroll(
         self,
@@ -215,8 +219,18 @@ def check_payroll_cross_reference(
     return [indicator]
 
 
-def _build_default_transport() -> Transport:
-    """Build the default ``httpx.AsyncClient``-backed async transport."""
+def _build_default_transport(bearer_token: Optional[str] = None) -> Transport:
+    """Build the default ``httpx.AsyncClient``-backed async transport.
+
+    When ``bearer_token`` is set, an ``Authorization: Bearer <token>`` header is
+    presented on every request. The CRA Adapter validates a GCKey Bearer on
+    every endpoint (Req 19.7 / design "Token validation"), so the engine
+    authenticates with its own service credential; absent a token (unit tests)
+    no header is sent.
+    """
+    headers = (
+        {"Authorization": f"Bearer {bearer_token}"} if bearer_token else None
+    )
 
     async def _transport(url: str, timeout_seconds: float) -> dict[str, Any]:
         try:
@@ -225,7 +239,7 @@ def _build_default_transport() -> Transport:
             raise CRAPayrollUnavailable("httpx unavailable") from exc
 
         try:
-            async with httpx.AsyncClient(timeout=timeout_seconds) as http:
+            async with httpx.AsyncClient(timeout=timeout_seconds, headers=headers) as http:
                 response = await http.get(url)
                 response.raise_for_status()
                 return response.json()

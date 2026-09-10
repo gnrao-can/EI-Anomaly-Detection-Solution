@@ -80,6 +80,14 @@ if _HAS_PYDANTIC_SETTINGS:
         # response. Set False in production to publish to Kafka.
         enable_kafka: bool = False
 
+        # ── Internal service auth (Req 19.7) ────────────────────────
+        # Service Bearer token presented on the internal CRA Adapter (payroll)
+        # + LLM Service calls. Every EI-ADS endpoint validates a GCKey Bearer
+        # (Req 19.7), so the engine authenticates with its own service
+        # credential — mirroring the History/Regional/Geographic/Fraud-Ring
+        # engines' SERVICE_TOKEN pattern. Empty in unit tests (no header sent).
+        service_token: str = ""
+
         # ── External dependencies (task 15.3) ──────────────────────
         # CRA Adapter base URL for payroll cross-reference (Requirement 7.7).
         cra_adapter_base_url: str = "http://cra-adapter:8011"
@@ -141,6 +149,9 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
                 "true",
                 "yes",
             }
+
+            # Internal service Bearer token (Req 19.7); empty in unit tests.
+            self.service_token = os.environ.get("SERVICE_TOKEN", "")
 
             self.cra_adapter_base_url = os.environ.get(
                 "CRA_ADAPTER_BASE_URL", "http://cra-adapter:8011"

@@ -152,10 +152,12 @@ async def lifespan(app: FastAPI):
         producer, topic=getattr(settings, "indicators_topic", "indicators.document-forgery")
     )
 
-    # CRA Adapter payroll client (Requirement 7.7).
+    # CRA Adapter payroll client (Requirement 7.7). Presents the engine's
+    # internal GCKey service Bearer (Req 19.7); empty => no header (unit tests).
     app.state.payroll_client = CRAPayrollClient(
         base_url=getattr(settings, "cra_adapter_base_url", ""),
         timeout_seconds=float(getattr(settings, "cra_timeout_seconds", 5.0)),
+        bearer_token=getattr(settings, "service_token", "") or None,
     )
     yield
     # Best-effort producer shutdown.

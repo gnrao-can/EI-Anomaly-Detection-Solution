@@ -423,3 +423,56 @@ def test_processing_timeout_indicator_shape():
     assert ind.payload["flag"] == PROCESSING_TIMEOUT
     assert ind.payload["elapsed_ms"] == 812.5
     assert ind.payload["budget_ms"] == ANALYSIS_BUDGET_MS
+
+
+# ===========================================================================
+# Engine -> CRA Adapter authentication (Req 19.7)
+#
+# The CRA Adapter's payroll endpoint is auth-gated (require_role INVESTIGATOR).
+# CRAPayrollClient's DEFAULT transport must attach the service Bearer when a
+# token is configured, and send NO Authorization header when it is absent.
+# ===========================================================================
+
+
+@pytest.mark.asyncio
+async def test_cra_default_transport_sends_bearer_when_token_set(monkeypatch):
+    httpx = pytest.importorskip("httpx")
+    seen = {}
+
+    def handler(request):
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"status": "OK", "sin_in_payroll": True})
+
+    real_async_client = httpx.AsyncClient
+
+    def _factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return real_async_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _factory)
+    client = CRAPayrollClient("http://cra", bearer_token="tok-doc-123")
+    lookup = await client.check_sin_in_payroll("h", "BN", "2024-01-01", "2024-06-01")
+    assert lookup.found
+    assert seen["authorization"] == "Bearer tok-doc-123"
+
+
+@pytest.mark.asyncio
+async def test_cra_default_transport_no_header_when_token_absent(monkeypatch):
+    httpx = pytest.importorskip("httpx")
+    seen = {}
+
+    def handler(request):
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"status": "OK", "sin_in_payroll": False})
+
+    real_async_client = httpx.AsyncClient
+
+    def _factory(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handler)
+        return real_async_client(*args, **kwargs)
+
+    monkeypatch.setattr(httpx, "AsyncClient", _factory)
+    client = CRAPayrollClient("http://cra")  # no token
+    lookup = await client.check_sin_in_payroll("h", "BN", "2024-01-01", "2024-06-01")
+    assert lookup.not_found
+    assert seen["authorization"] is None
