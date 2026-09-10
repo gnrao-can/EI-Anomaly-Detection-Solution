@@ -1014,3 +1014,362 @@ async def test_three_engines_with_adapters_yield_flag_over_real_transports(
             svc.stop()
         os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
         os.environ.pop("SERVICE_TOKEN", None)
+
+
+# ===========================================================================
+# Slice 3+ — FOUR engines including Geographic Anomaly (engine #4) WITH its
+# GeoNames + MVR + CBSA mock-data adapters, over REAL transports.
+#
+# The Geographic Anomaly engine resolves the residence (FSA A1C → St. John's,
+# NL) and work location (M5H → Toronto) via the GeoNames adapter's local dump,
+# computes a Haversine distance of ~2108 km (> 100 km), derives the province NL
+# from the FSA (Req 15.1), and queries the MVR adapter — whose NL fixture pins
+# vehicle_ownership_status=NONE — yielding a HIGH "no registered vehicle"
+# Indicator (Req 4.3). That single real HIGH signal, combined with ≥3 engines
+# completing, drives the Ensemble Scorer to a determinate NON-AUTO_APPROVE
+# decision (Req 2.2/9.2).
+#
+# Every engine→adapter call presents the engine's SERVICE_TOKEN (INVESTIGATOR
+# Bearer); the three adapters run their REAL shared.auth JWKS validation
+# (Req 19.7). Nothing is faked: real Kafka, real HTTP, real auth, real fixtures.
+# ===========================================================================
+
+
+def _start_geonames_adapter(jwks_url: str) -> LoopbackService:
+    """Start the GeoNames adapter (dev = local dump) on loopback HTTP, auth-gated."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    _reset_service_settings("geonames-adapter")
+    adapter_main = load_service_module(
+        "geonames-adapter", "main", siblings=["config", "geo", "main"]
+    )
+    return LoopbackService(adapter_main.app, health_path="/healthz").start()
+
+
+def _start_mvr_adapter(jwks_url: str) -> LoopbackService:
+    """Start the MVR adapter (dev = synthetic fixtures) on loopback HTTP, auth-gated."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    _reset_service_settings("mvr-adapter")
+    adapter_main = load_service_module(
+        "mvr-adapter", "main", siblings=["config", "client", "main"]
+    )
+    return LoopbackService(adapter_main.app, health_path="/healthz").start()
+
+
+def _start_cbsa_adapter(jwks_url: str) -> LoopbackService:
+    """Start the CBSA adapter (dev = synthetic fixtures) on loopback HTTP, auth-gated."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["APP_ENV"] = "development"
+    _reset_service_settings("cbsa-adapter")
+    adapter_main = load_service_module(
+        "cbsa-adapter", "main", siblings=["config", "client", "absence", "main"]
+    )
+    return LoopbackService(adapter_main.app, health_path="/healthz").start()
+
+
+def _start_geographic_engine_with_adapters(
+    jwks_url: str, geonames_url: str, mvr_url: str, cbsa_url: str
+) -> LoopbackService:
+    """Start Geographic Anomaly wired to REAL GeoNames + MVR + CBSA adapters."""
+    os.environ["GCKEY_JWKS_URL"] = jwks_url
+    os.environ["GEONAMES_ADAPTER_URL"] = geonames_url
+    os.environ["MVR_ADAPTER_URL"] = mvr_url
+    os.environ["CBSA_ADAPTER_URL"] = cbsa_url
+    _reset_service_settings("geographic-anomaly-engine")
+    engine_main = load_service_module(
+        "geographic-anomaly-engine",
+        "main",
+        siblings=[
+            "config", "geo", "province", "client", "transport",
+            "mvr_client", "cbsa_client", "kafka_producer", "indicators", "main",
+        ],
+    )
+    config_mod = load_service_module(
+        "geographic-anomaly-engine", "config", siblings=["config"]
+    )
+    engine_main.app.state.settings = config_mod.get_settings()
+    # Drop any adapter clients cached on app.state from an earlier import so the
+    # lifespan rebuilds them against the new URLs + SERVICE_TOKEN. NOTE: the
+    # engine's lifespan only builds a client when the attribute is ABSENT
+    # (``not hasattr``), and its analyze() does NOT rebuild on None — so we must
+    # delattr (not set to None), else the client stays None → RESOLUTION_FAILED.
+    for _attr in ("geonames", "mvr", "cbsa"):
+        if hasattr(engine_main.app.state, _attr):
+            delattr(engine_main.app.state, _attr)
+    return LoopbackService(engine_main.app, health_path="/healthz").start()
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_four_engines_with_geographic_adapters_yield_determinate_over_real_transports(
+    itest_service_auth,
+):
+    """≥4 engines incl. Geographic + its adapters → REAL HIGH signal → determinate.
+
+    Geographic Anomaly (engine #4) resolves A1C (NL) → M5H (Toronto) = ~2108 km
+    via the GeoNames adapter, derives province NL from the FSA (Req 15.1), and
+    the MVR adapter's NL fixture (vehicle_ownership_status=NONE) drives a HIGH
+    "no registered vehicle" Indicator (Req 4.3). With the Repetitive Pattern +
+    History + Regional engines also completing (≥3, actually 4), the pipeline
+    runs the Ensemble Scorer and publishes a determinate NON-AUTO_APPROVE
+    decision (Req 2.2). Engines authenticate to the auth-gated adapters with
+    their SERVICE_TOKEN (INVESTIGATOR Bearer, Req 19.7).
+    """
+    from testcontainers.kafka import KafkaContainer  # guarded import
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+
+    correlator_mod, engine_dispatch_mod, scoring_mod, publisher_mod, consumer_mod = (
+        _load_orchestrator_modules()
+    )
+    EventCorrelator = correlator_mod.EventCorrelator
+    InMemoryPairingStore = correlator_mod.InMemoryPairingStore
+    CLAIM_RECEIVED = correlator_mod.CLAIM_RECEIVED
+    ROE_RECEIVED = correlator_mod.ROE_RECEIVED
+
+    EngineDispatcher = engine_dispatch_mod.EngineDispatcher
+    EngineType = engine_dispatch_mod.EngineType
+    ALL_ENGINES = engine_dispatch_mod.ALL_ENGINES
+    ENGINE_ANALYZE_PATH = engine_dispatch_mod.ENGINE_ANALYZE_PATH
+    MIN_ENGINES_REQUIRED = engine_dispatch_mod.MIN_ENGINES_REQUIRED
+
+    ScoringClient = scoring_mod.ScoringClient
+    HttpxScorerCaller = scoring_mod.HttpxScorerCaller
+
+    ResultPublisher = publisher_mod.ResultPublisher
+    AIOKafkaProducerAdapter = publisher_mod.AIOKafkaProducerAdapter
+    CLAIM_SCORED_TOPIC = publisher_mod.CLAIM_SCORED_TOPIC
+
+    OrchestratorConsumer = consumer_mod.OrchestratorConsumer
+
+    from shared.models import RiskDecision
+
+    jwks_url = itest_service_auth.auth_server_url
+    token = itest_service_auth.mint_token(roles=["INVESTIGATOR"])
+    # Orchestrator (engine/scorer calls) + engines (adapter calls) both present
+    # this INVESTIGATOR service Bearer on internal calls (Req 19.7).
+    os.environ["ORCHESTRATOR_SERVICE_TOKEN"] = token
+    os.environ["SERVICE_TOKEN"] = token
+
+    services: list = []
+    kafka = None
+    orchestrator_consumer = producer = scored_consumer = kafka_adapter = None
+    scoring_client = None
+    try:
+        # ── Geographic's three adapters first (their URLs feed the engine). ─
+        geonames = _start_geonames_adapter(jwks_url)
+        mvr = _start_mvr_adapter(jwks_url)
+        cbsa = _start_cbsa_adapter(jwks_url)
+
+        # ── Four engines: geographic wired to its adapters; the other three
+        #    degrade (no adapters) but still COMPLETE. ────────────────────────
+        rpe = _start_repetitive_pattern_engine(jwks_url)
+        history = _start_history_inconsistency_engine(jwks_url)
+        regional = _start_regional_analysis_engine(jwks_url)
+        geographic = _start_geographic_engine_with_adapters(
+            jwks_url, geonames.base_url, mvr.base_url, cbsa.base_url
+        )
+        scorer = _start_ensemble_scorer(jwks_url)
+        services = [geonames, mvr, cbsa, rpe, history, regional, geographic, scorer]
+
+        # Warm the shared JWKS cache once against a real engine.
+        warm = httpx.post(
+            f"{rpe.base_url}{ENGINE_ANALYZE_PATH}",
+            json={"sin_hash": "warmup"},
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+        assert warm.status_code == 200, warm.text
+
+        # Sanity-check the auth-gated adapter path directly (Req 19.7): the MVR
+        # adapter must serve the NL fixture (NONE) WITH the Bearer and reject the
+        # same request WITHOUT it.
+        mvr_url = f"{mvr.base_url}/mvr/geo-nl-nocar?province=NL"
+        mvr_ok = httpx.get(
+            mvr_url, headers={"Authorization": f"Bearer {token}"}, timeout=5.0
+        )
+        assert mvr_ok.status_code == 200, mvr_ok.text
+        assert mvr_ok.json()["record"]["vehicle_ownership_status"] == "NONE", mvr_ok.text
+        mvr_401 = httpx.get(mvr_url, timeout=5.0)
+        assert mvr_401.status_code == 401, "adapter must reject an unauthenticated call"
+
+        # Endpoints: four implemented engines reachable; the other two at a
+        # CLOSED loopback port so they fail fast → PARTIAL_RESULT.
+        dead_port = _closed_loopback_port()
+        real = {
+            EngineType.REPETITIVE_PATTERN: rpe.base_url,
+            EngineType.HISTORY_INCONSISTENCY: history.base_url,
+            EngineType.REGIONAL_ANALYSIS: regional.base_url,
+            EngineType.GEOGRAPHIC_ANOMALY: geographic.base_url,
+        }
+        endpoints = {}
+        for engine in ALL_ENGINES:
+            base = real.get(engine, f"http://127.0.0.1:{dead_port}")
+            endpoints[engine] = f"{base}{ENGINE_ANALYZE_PATH}"
+        timeouts = {engine: 5000 for engine in ALL_ENGINES}
+
+        kafka = KafkaContainer()
+        kafka.start()
+        bootstrap = kafka.get_bootstrap_server()
+
+        dispatcher = EngineDispatcher(endpoints=endpoints, timeouts_ms=timeouts)
+        scoring_client = ScoringClient(
+            HttpxScorerCaller(base_url=scorer.base_url), budget_ms=5000
+        )
+        kafka_adapter = AIOKafkaProducerAdapter(bootstrap_servers=bootstrap)
+        result_publisher = ResultPublisher(kafka_adapter, audit_sink=None)
+
+        captured: dict = {}
+
+        async def dispatch_callback(pair):
+            dispatch = await dispatcher.dispatch(pair.claim_payload, pair.roe_payload)
+            captured["dispatch"] = dispatch
+            outcome = await scoring_client.score(
+                dispatch.indicators,
+                dispatch.claim_id,
+                dispatch.engines_completed,
+                dispatch.engines_partial,
+                indeterminate=dispatch.indeterminate,
+            )
+            captured["outcome"] = outcome
+            await result_publisher.publish_scored(dispatch.claim_id, outcome)
+
+        store = InMemoryPairingStore()
+        correlator = EventCorrelator(store)
+        orchestrator_consumer = OrchestratorConsumer(
+            correlator,
+            dispatch_callback,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3plus-geo-orchestrator",
+            degrade_gracefully=False,
+        )
+        assert await orchestrator_consumer.start() is True
+
+        scored_consumer = AIOKafkaConsumer(
+            CLAIM_SCORED_TOPIC,
+            bootstrap_servers=bootstrap,
+            group_id="itest-slice3plus-geo-assert",
+            auto_offset_reset="earliest",
+            enable_auto_commit=True,
+        )
+        await scored_consumer.start()
+
+        # ── Produce paired events. residential_postal_code A1C (NL) is far from
+        #    employer_work_location M5H (Toronto): ~2108 km > 100 km, and the NL
+        #    MVR fixture reports NONE → HIGH no-vehicle (Req 4.3). ─────────────
+        claim_id = str(uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        claim_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "c" * 64,
+            "employer_bn": "111222333RP0001",
+            "insurable_hours": "800",
+            "insurable_earnings": "25000",
+            "separation_date": "2024-03-15",
+            "claim_start_date": "2024-04-01",
+            "economic_region_code": "10",
+            "noc_code": "12345",
+            "residential_postal_code": "A1C",
+            "employer_work_location": "M5H",
+            "received_at": now,
+        }
+        roe_payload = {
+            "claim_id": claim_id,
+            "sin_hash": "c" * 64,
+            "employer_bn": "111222333RP0001",
+            "insurable_earnings": "25000",
+            "received_at": now,
+        }
+
+        producer = AIOKafkaProducer(bootstrap_servers=bootstrap)
+        await producer.start()
+        for event_type, payload in (
+            (CLAIM_RECEIVED, claim_payload),
+            (ROE_RECEIVED, roe_payload),
+        ):
+            envelope = {"event_type": event_type, "claim_id": claim_id, "payload": payload}
+            await producer.send_and_wait(
+                event_type,
+                value=json.dumps(envelope).encode("utf-8"),
+                key=claim_id.encode("utf-8"),
+            )
+
+        # ── Await the claim.scored event (bounded). ─────────────────────────
+        scored = None
+        deadline = asyncio.get_event_loop().time() + 30.0
+        while asyncio.get_event_loop().time() < deadline:
+            try:
+                msg = await asyncio.wait_for(scored_consumer.getone(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
+            event = json.loads(msg.value.decode("utf-8"))
+            if event.get("claim_id") == claim_id:
+                scored = event
+                break
+
+        # ── Assertions: ≥3 (here 4) complete → determinate; geographic HIGH. ─
+        dispatch = captured["dispatch"]
+        assert set(dispatch.engines_completed) == {
+            EngineType.REPETITIVE_PATTERN,
+            EngineType.HISTORY_INCONSISTENCY,
+            EngineType.REGIONAL_ANALYSIS,
+            EngineType.GEOGRAPHIC_ANOMALY,
+        }, dispatch.engines_completed
+        assert dispatch.completed_count >= MIN_ENGINES_REQUIRED
+        assert dispatch.indeterminate is False
+        assert captured["outcome"].fallback is False
+
+        # The Geographic engine really produced a HIGH no-vehicle Indicator from
+        # the FSA-derived province NL + the MVR fixture (proves the whole
+        # engine→GeoNames→MVR chain over real transports, not a degrade).
+        from shared.models import EngineType as _ET, Severity as _Sev
+        geo_high = [
+            ind for ind in dispatch.indicators
+            if ind.engine == _ET.GEOGRAPHIC_ANOMALY and ind.severity == _Sev.HIGH
+        ]
+        assert len(geo_high) >= 1, (
+            "expected ≥1 HIGH geographic Indicator (no-vehicle, Req 4.3); got "
+            f"{[(i.engine, i.algorithm, i.severity) for i in dispatch.indicators]}"
+        )
+        # The HIGH indicator is the transport-implausibility (no vehicle) one and
+        # carries the FSA-derived province NL in its payload.
+        no_vehicle = [
+            i for i in geo_high if i.algorithm == "transport_implausibility_vehicle"
+        ]
+        assert no_vehicle, [i.algorithm for i in geo_high]
+        assert no_vehicle[0].payload.get("province") == "NL", no_vehicle[0].payload
+
+        assert scored is not None, "no claim.scored event observed for the claim"
+        assert scored["claim_id"] == claim_id
+        # Determinate, and the real HIGH signal keeps it out of INDETERMINATE.
+        assert scored["risk_decision"] != RiskDecision.INDETERMINATE.value
+        assert scored["risk_decision"] in {
+            RiskDecision.AUTO_APPROVE.value,
+            RiskDecision.FLAG_FOR_REVIEW.value,
+            RiskDecision.INVESTIGATE.value,
+        }
+        # A single HIGH indicator lifts the score above the AUTO_APPROVE band
+        # (Req 9.2: AUTO_APPROVE is [0,29]); the decision is FLAG/INVESTIGATE.
+        assert scored["risk_decision"] != RiskDecision.AUTO_APPROVE.value, (
+            f"a real HIGH geographic signal should lift the score out of "
+            f"AUTO_APPROVE; got {scored['risk_decision']} @ {scored['risk_score']}"
+        )
+        assert isinstance(scored["risk_score"], int)
+        assert 0 <= scored["risk_score"] <= 100
+    finally:
+        if producer is not None:
+            await producer.stop()
+        if scored_consumer is not None:
+            await scored_consumer.stop()
+        if orchestrator_consumer is not None:
+            await orchestrator_consumer.stop()
+        if kafka_adapter is not None:
+            await kafka_adapter.stop()
+        if scoring_client is not None:
+            await scoring_client.aclose()
+        if kafka is not None:
+            kafka.stop()
+        for svc in services:
+            svc.stop()
+        os.environ.pop("ORCHESTRATOR_SERVICE_TOKEN", None)
+        os.environ.pop("SERVICE_TOKEN", None)
