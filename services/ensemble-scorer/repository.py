@@ -44,9 +44,22 @@ _PG_INSERT_ASSESSMENT = """
 INSERT INTO risk_assessments (
     assessment_id, claim_id, risk_score, risk_decision,
     shap_base_value, explanation_en, explanation_fr,
+    engines_completed, engines_partial,
     model_version, scored_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
 ON CONFLICT (assessment_id) DO NOTHING
+"""
+
+# The per-engine Indicators that fed this assessment (indicators table,
+# migration 002). Linked to the assessment via assessment_id; the claim_id is
+# carried too so the investigator dashboard can list a claim's indicators.
+_PG_INSERT_INDICATOR = """
+INSERT INTO indicators (
+    indicator_id, claim_id, assessment_id, engine_type, severity,
+    algorithm, title, explanation_en, explanation_fr, payload,
+    shap_contribution, produced_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11, $12)
+ON CONFLICT (indicator_id) DO NOTHING
 """
 
 # Columns match the shap_attributions schema (migration 002): the table links
@@ -62,7 +75,9 @@ INSERT INTO shap_attributions (
 class RiskAssessmentRepositoryProtocol(Protocol):
     """Structural contract implemented by both the real and fake repositories."""
 
-    async def persist(self, assessment: RiskAssessment) -> None: ...
+    async def persist(
+        self, assessment: RiskAssessment, indicators: Optional[Any] = None
+    ) -> None: ...
 
 
 class RiskAssessmentRepository:
@@ -152,34 +167,45 @@ class RiskAssessmentRepository:
     # Public API
     # ------------------------------------------------------------------
 
-    async def persist(self, assessment: RiskAssessment) -> None:
-        """Persist a RiskAssessment to PostgreSQL and ClickHouse.
+    async def persist(
+        self, assessment: RiskAssessment, indicators: Optional[Any] = None
+    ) -> None:
+        """Persist a RiskAssessment (and its Indicators) to PostgreSQL/ClickHouse.
 
         Writes are best-effort per store: a configured store that fails raises,
         while an unconfigured store (``None`` client) is simply skipped so the
         service can run without a full data tier in development.
+
+        ``indicators`` (the per-engine Indicators that fed this assessment) are
+        persisted to the ``indicators`` table, linked to the assessment via
+        ``assessment_id``, so the investigator dashboard can show the evidence
+        behind a decision. When omitted, only the assessment row is written.
         """
-        await self._persist_postgres(assessment)
+        await self._persist_postgres(assessment, indicators or [])
         self._persist_clickhouse(assessment)
 
     # ------------------------------------------------------------------
     # PostgreSQL
     # ------------------------------------------------------------------
 
-    async def _persist_postgres(self, assessment: RiskAssessment) -> None:
+    async def _persist_postgres(
+        self, assessment: RiskAssessment, indicators: Any
+    ) -> None:
         if self._pg_pool is None:
             return
         async with self._pg_pool.acquire() as conn:
-            # Prefer a transaction so the assessment and its attributions are
-            # written atomically.
+            # Prefer a transaction so the assessment, its indicators, and its
+            # attributions are written atomically.
             tx = getattr(conn, "transaction", None)
             if callable(tx):
                 async with conn.transaction():
-                    await self._pg_write(conn, assessment)
+                    await self._pg_write(conn, assessment, indicators)
             else:  # pragma: no cover - fakes without transaction support
-                await self._pg_write(conn, assessment)
+                await self._pg_write(conn, assessment, indicators)
 
-    async def _pg_write(self, conn: Any, assessment: RiskAssessment) -> None:
+    async def _pg_write(
+        self, conn: Any, assessment: RiskAssessment, indicators: Any
+    ) -> None:
         await conn.execute(
             _PG_INSERT_ASSESSMENT,
             assessment.assessment_id,
@@ -189,9 +215,45 @@ class RiskAssessmentRepository:
             float(assessment.shap_base_value),
             assessment.explanation_en,
             assessment.explanation_fr,
+            [e.value for e in assessment.engines_completed],
+            [e.value for e in assessment.engines_partial],
             assessment.model_version,
             assessment.scored_at,
         )
+        # Persist the per-engine Indicators (evidence behind the decision). The
+        # indicators table's engine_type CHECK only permits the six detection
+        # engines, so skip any Indicator whose engine is outside that set (e.g.
+        # a scorer-level PARTIAL_RESULT placeholder) rather than fail the write.
+        import json as _json  # local import; stdlib, no cost at module load
+
+        _ALLOWED_ENGINES = {
+            "REPETITIVE_PATTERN", "GEOGRAPHIC_ANOMALY", "FRAUD_RING",
+            "HISTORY_INCONSISTENCY", "DOCUMENT_FORGERY", "REGIONAL_ANALYSIS",
+        }
+        ind_rows = []
+        for ind in indicators or []:
+            engine_val = getattr(ind.engine, "value", ind.engine)
+            if engine_val not in _ALLOWED_ENGINES:
+                continue
+            ind_rows.append(
+                (
+                    ind.indicator_id,
+                    ind.claim_id,
+                    assessment.assessment_id,
+                    engine_val,
+                    getattr(ind.severity, "value", ind.severity),
+                    ind.algorithm,
+                    ind.title,
+                    ind.explanation_en,
+                    ind.explanation_fr,
+                    _json.dumps(ind.payload or {}),
+                    ind.shap_contribution,
+                    ind.produced_at,
+                )
+            )
+        if ind_rows:
+            await conn.executemany(_PG_INSERT_INDICATOR, ind_rows)
+
         rows = [
             (
                 assessment.assessment_id,
@@ -280,9 +342,13 @@ class FakeRiskAssessmentRepository:
 
     def __init__(self) -> None:
         self.saved: list[RiskAssessment] = []
+        self.saved_indicators: list[Any] = []
 
-    async def persist(self, assessment: RiskAssessment) -> None:
+    async def persist(
+        self, assessment: RiskAssessment, indicators: Optional[Any] = None
+    ) -> None:
         self.saved.append(assessment)
+        self.saved_indicators.append(list(indicators or []))
 
     # Convenience accessors for tests -----------------------------------
 

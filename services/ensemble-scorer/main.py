@@ -148,7 +148,9 @@ async def score(
 
     repository = getattr(app.state, "repository", None)
     if repository is not None:
-        await repository.persist(assessment)
+        # Persist the assessment AND the per-engine Indicators that fed it, so
+        # the investigator dashboard can show the evidence behind the decision.
+        await repository.persist(assessment, indicators)
 
     return ScoreResponse(
         assessment_id=str(assessment.assessment_id),

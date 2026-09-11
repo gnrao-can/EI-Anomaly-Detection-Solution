@@ -364,3 +364,79 @@ class TestRiskAssessmentRepository:
         inserted_tables = {t for t, _, _ in ch.inserts}
         assert "risk_assessments_analytics" in inserted_tables
         assert "shap_attributions" in inserted_tables
+
+    def test_persist_writes_engine_arrays_and_indicators(self):
+        """The assessment INSERT carries engines_completed/partial, and the
+        per-engine Indicators are written to the indicators table."""
+
+        class _FakeConn:
+            def __init__(self):
+                self.executed = []
+                self.many = []
+
+            async def execute(self, sql, *args):
+                self.executed.append((sql, args))
+
+            async def executemany(self, sql, rows):
+                self.many.append((sql, list(rows)))
+
+            def transaction(self):
+                conn = self
+
+                class _Tx:
+                    async def __aenter__(self):
+                        return conn
+
+                    async def __aexit__(self, *exc):
+                        return False
+
+                return _Tx()
+
+        class _FakePool:
+            def __init__(self, conn):
+                self._conn = conn
+
+            def acquire(self):
+                conn = self._conn
+
+                class _Acq:
+                    async def __aenter__(self):
+                        return conn
+
+                    async def __aexit__(self, *exc):
+                        return False
+
+                return _Acq()
+
+        conn = _FakeConn()
+        repo = RiskAssessmentRepository(pg_pool=_FakePool(conn), clickhouse_client=None)
+
+        # Two real detection-engine Indicators fed the assessment.
+        indicators = [
+            make_indicator(EngineType.REPETITIVE_PATTERN, Severity.HIGH),
+            make_indicator(EngineType.REGIONAL_ANALYSIS, Severity.MEDIUM),
+        ]
+        scorer = EnsembleScorer(model_dir=Path("/nonexistent"))
+        assessment = scorer.assess(indicators)
+
+        asyncio.run(repo.persist(assessment, indicators))
+
+        # 1. The assessment INSERT now includes the engine-completion arrays.
+        assess_sql, assess_args = next(
+            (sql, args) for sql, args in conn.executed if "risk_assessments" in sql
+        )
+        assert "engines_completed" in assess_sql
+        assert "engines_partial" in assess_sql
+        # The engines_completed arg is the derived list of the two engines.
+        completed_arg = next(
+            a for a in assess_args if isinstance(a, list)
+            and set(a) & {"REPETITIVE_PATTERN", "REGIONAL_ANALYSIS"}
+        )
+        assert set(completed_arg) == {"REPETITIVE_PATTERN", "REGIONAL_ANALYSIS"}
+
+        # 2. The per-engine Indicators were written to the indicators table.
+        indicator_many = [
+            rows for sql, rows in conn.many if "INTO indicators" in sql
+        ]
+        assert indicator_many, "expected an indicators executemany"
+        assert len(indicator_many[0]) == 2
