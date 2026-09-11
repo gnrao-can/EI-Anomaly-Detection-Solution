@@ -41,6 +41,12 @@ services:
       KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: "1"
       KAFKA_CFG_MIN_INSYNC_REPLICAS: "1"
       KAFKA_CFG_NUM_PARTITIONS: "3"
+      # Auto-create topics on first publish (safety net). The kafka-init service
+      # ALSO pre-creates the required topics deterministically so claim.escalated
+      # exists before the first INVESTIGATE decision (Req 2.7) — a producer's
+      # first send would otherwise race broker metadata and log
+      # "Topic claim.escalated not found in cluster metadata".
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
       # Log retention
       KAFKA_CFG_LOG_RETENTION_HOURS: "168"
       ALLOW_PLAINTEXT_LISTENER: "yes"
@@ -53,6 +59,35 @@ services:
       retries: 5
       start_period: 30s
     restart: unless-stopped
+
+  # ── Kafka topic bootstrap (one-shot) ──────────────────────
+  # Deterministically create the pipeline topics so publishing never races
+  # broker metadata. Critically this pre-creates claim.escalated so the first
+  # INVESTIGATE decision (Req 2.7) can publish it instead of failing with
+  # "Topic claim.escalated not found in cluster metadata". Idempotent
+  # (--if-not-exists) and self-terminating (restart: no), so it is safe to run
+  # on every bring-up. Waits for the broker to answer before creating.
+  kafka-init:
+    image: docker.io/bitnamilegacy/kafka:3.7.0
+    container_name: ei-ads-kafka-init
+    command:
+      - /bin/bash
+      - -c
+      - |
+        echo "waiting for kafka:9092 ..."
+        for i in $(seq 1 60); do
+          if kafka-topics.sh --bootstrap-server kafka:9092 --list >/dev/null 2>&1; then
+            break
+          fi
+          sleep 2
+        done
+        for t in claim.received roe.received claim.scored claim.escalated outcome.feedback; do
+          kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+            --topic "$$t" --partitions 3 --replication-factor 1
+        done
+        echo "=== topics after init ==="
+        kafka-topics.sh --bootstrap-server kafka:9092 --list
+    restart: "no"
 
   # ── Redis (single node for local dev; cluster in production) ─
   redis:
