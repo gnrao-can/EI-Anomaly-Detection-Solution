@@ -49,6 +49,15 @@ except ImportError:  # pragma: no cover - shared.telemetry always present in rep
 
 logger = logging.getLogger("pipeline-orchestrator.consumer")
 
+#: Initial Kafka-connect retry parameters. On a compose bring-up the broker is
+#: often not ready for a few seconds after the orchestrator starts; retrying
+#: with exponential backoff lets the consumer attach itself once Kafka is up,
+#: so no manual restart is needed. ~10 attempts (1s,2s,4s,8s,10s,...) covers a
+#: typical broker start_period without blocking startup indefinitely.
+_KAFKA_CONNECT_MAX_ATTEMPTS: int = 10
+_KAFKA_CONNECT_INITIAL_DELAY_S: float = 1.0
+_KAFKA_CONNECT_MAX_DELAY_S: float = 10.0
+
 #: A dispatch callback receives the completed pairing and triggers engine work.
 DispatchCallback = Callable[[PairResult], Awaitable[None]]
 
@@ -141,28 +150,71 @@ class OrchestratorConsumer:
     async def start(self) -> bool:
         """Create/start the aiokafka consumer and begin the consume loop.
 
+        Retries the initial Kafka connection with exponential backoff so a broker
+        that is not yet ready at startup (a common compose bring-up race) is
+        awaited rather than causing permanent, silent degradation. Only after
+        :data:`_KAFKA_CONNECT_MAX_ATTEMPTS` failed attempts does graceful
+        degradation kick in (the consumer is left inert). This removes the need
+        to manually restart the orchestrator after Kafka comes up.
+
         Returns ``True`` when the consumer started; ``False`` when Kafka was
-        unavailable and graceful degradation is enabled (the consumer is inert).
+        unavailable after all retries and graceful degradation is enabled.
         """
         try:
             from aiokafka import AIOKafkaConsumer
-
-            self._consumer = AIOKafkaConsumer(
-                *self._topics,
-                bootstrap_servers=self._bootstrap_servers,
-                group_id=self._group_id,
-                enable_auto_commit=True,
-                auto_offset_reset="earliest",
-            )
-            await self._consumer.start()
-        except Exception as exc:  # noqa: BLE001 - any import/connection failure
+        except Exception as exc:  # noqa: BLE001 - aiokafka import failure
             if self._degrade_gracefully:
-                logger.warning(
-                    "Kafka consumer unavailable, degrading gracefully: %s", exc
-                )
+                logger.warning("aiokafka unavailable, degrading gracefully: %s", exc)
                 self._consumer = None
                 return False
             raise
+
+        delay = _KAFKA_CONNECT_INITIAL_DELAY_S
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, _KAFKA_CONNECT_MAX_ATTEMPTS + 1):
+            try:
+                self._consumer = AIOKafkaConsumer(
+                    *self._topics,
+                    bootstrap_servers=self._bootstrap_servers,
+                    group_id=self._group_id,
+                    enable_auto_commit=True,
+                    auto_offset_reset="earliest",
+                )
+                await self._consumer.start()
+                last_exc = None
+                break
+            except Exception as exc:  # noqa: BLE001 - any connection failure
+                last_exc = exc
+                # Best-effort cleanup of the half-built consumer before retrying.
+                try:
+                    if self._consumer is not None:
+                        await self._consumer.stop()
+                except Exception:  # noqa: BLE001
+                    pass
+                self._consumer = None
+                if attempt < _KAFKA_CONNECT_MAX_ATTEMPTS:
+                    logger.warning(
+                        "Kafka consumer connect attempt %d/%d failed (%s); "
+                        "retrying in %.1fs",
+                        attempt,
+                        _KAFKA_CONNECT_MAX_ATTEMPTS,
+                        exc,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay = min(delay * 2, _KAFKA_CONNECT_MAX_DELAY_S)
+
+        if last_exc is not None:
+            if self._degrade_gracefully:
+                logger.warning(
+                    "Kafka consumer unavailable after %d attempts, degrading "
+                    "gracefully: %s",
+                    _KAFKA_CONNECT_MAX_ATTEMPTS,
+                    last_exc,
+                )
+                self._consumer = None
+                return False
+            raise last_exc
 
         self._running = True
         self._task = asyncio.create_task(self._run())

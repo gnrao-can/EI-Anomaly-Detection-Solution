@@ -45,6 +45,7 @@ from pydantic import BaseModel, Field
 
 from shared.auth import Role, require_role
 from shared.models import Claim, ClaimStatus
+from shared.retry import connect_with_retry
 from shared.validation import validate_claim_fields
 
 try:  # sibling modules imported by bare name in the service directory
@@ -236,16 +237,27 @@ async def lifespan(app: FastAPI):
 
     # ── Kafka ───────────────────────────────────────────────────
     if _HAS_AIOKAFKA:
-        try:
+        # Retry the initial Kafka connect with backoff (shared.retry): on a
+        # compose bring-up the broker is often not ready for a few seconds after
+        # this service starts, and a single failed attempt would leave the
+        # producer permanently inert (claim.received never published) until a
+        # manual restart. The retry lets it attach itself once Kafka is up.
+        async def _build_producer() -> "AIOKafkaProducer":
             producer = AIOKafkaProducer(
                 bootstrap_servers=settings.kafka_bootstrap_servers,
             )
             await producer.start()
+            return producer
+
+        producer = await connect_with_retry(
+            _build_producer, description="claim-intake Kafka producer"
+        )
+        if producer is not None:
             app.state.kafka_producer = producer
             # Wrap the raw producer so the intake endpoint publishes
             # ``claim.received`` keyed by claim_id within the 500 ms budget.
             app.state.event_producer = ClaimEventProducer(producer)
-        except Exception:  # noqa: BLE001 - degrade gracefully in dev
+        else:
             app.state.kafka_producer = None
             app.state.event_producer = None
 

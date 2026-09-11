@@ -51,6 +51,7 @@ except ImportError:  # pragma: no cover - package-style import
     )
 
 from shared.models import Claim
+from shared.retry import connect_with_retry
 
 logger = logging.getLogger("roe-adapter")
 
@@ -74,6 +75,27 @@ instrument_tracing(app, service_name="roe-adapter")
 _producer: Any = None
 
 
+@app.on_event("startup")
+async def _warm_kafka_producer() -> None:
+    """Eagerly connect the Kafka producer in the BACKGROUND on startup.
+
+    Runs ``_get_producer`` (which retries with backoff) as a fire-and-forget
+    task so a broker that is not yet ready at bring-up is awaited off the
+    request path — by the time the first ROE arrives the producer is typically
+    already connected, so ``roe.received`` is not lost to a startup race. Never
+    blocks startup and never raises (graceful degradation still applies).
+    """
+    import asyncio
+
+    async def _warm() -> None:
+        try:
+            await _get_producer()
+        except Exception:  # noqa: BLE001 - warm-up must never crash the service
+            pass
+
+    asyncio.create_task(_warm())
+
+
 # ---------------------------------------------------------------------------
 # Kafka publishing
 # ---------------------------------------------------------------------------
@@ -91,18 +113,28 @@ async def _get_producer() -> Any:
         return _producer
 
     settings = get_settings()
-    try:
+
+    async def _build() -> Any:
         from aiokafka import AIOKafkaProducer
 
         producer = AIOKafkaProducer(bootstrap_servers=settings.kafka_bootstrap_servers)
         await producer.start()
+        return producer
+
+    # Retry the connect with backoff so a broker that is briefly unready at
+    # startup (a compose bring-up race) is awaited instead of degrading
+    # permanently. On the eager startup warm-up this runs off the request path;
+    # a later per-request call finds ``_producer`` already set and is instant.
+    producer = await connect_with_retry(
+        _build, description="roe-adapter Kafka producer"
+    )
+    if producer is not None:
         _producer = producer
         return _producer
-    except Exception as exc:  # broad: any connection/import error degrades in dev
-        if settings.kafka_degrade_gracefully:
-            logger.warning("Kafka producer unavailable, degrading gracefully: %s", exc)
-            return None
-        raise
+
+    if settings.kafka_degrade_gracefully:
+        return None
+    raise RuntimeError("Kafka producer unavailable and graceful degradation disabled")
 
 
 async def publish_roe_received(claim: Claim) -> bool:
