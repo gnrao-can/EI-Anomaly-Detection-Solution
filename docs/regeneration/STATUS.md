@@ -609,6 +609,13 @@ see the recipe below. Claim SUBMISSION through the portal still needs a real GCK
 the session (Bearer-forward to intake); submit directly to `claim-intake` with a minted CLAIMANT
 Bearer instead (as in the recipe).
 
+**One-command launcher: `scripts/dev/start-stack.sh`.** This script codifies the whole recipe
+below (machine start → mint dev token → materialise the Drive build context → sequential image
+build → `podman-compose up` → readiness waits for Kafka + orchestrator consumer + heavy-engine
+warm-up). Run `scripts/dev/start-stack.sh` for a full bring-up, `--no-build` to skip the image
+build when images already exist, or `--down` to tear the stack down. The numbered steps below
+document what it does (and remain the manual fallback if you want to run a single step).
+
 **Bring-up recipe (run in a human terminal — the agent is server-guarded). This is the recipe that
 ACTUALLY WORKS on macOS + Podman 6 after a long debugging session; deviations reintroduce the
 failures noted in "Task 30 — compose gotchas" below:**
