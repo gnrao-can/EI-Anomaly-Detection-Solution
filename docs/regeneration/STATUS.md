@@ -629,6 +629,25 @@ failures noted in "Task 30 — compose gotchas" below:**
    port collisions. NEVER set `DOCKER_HOST` — `podman`/`podman-compose` use the DEFAULT connection;
    a `DOCKER_HOST` set to a forwarded socket operates on a different view and your teardowns miss the
    real containers.
+5a. **Wait for readiness before submitting a claim (~30–60 s after `up`).** Two things settle
+   asynchronously:
+   - **Kafka wiring self-heals — no manual restart needed.** The Kafka-dependent services
+     (claim-intake + roe-adapter producers, orchestrator consumer) retry their broker connect with
+     exponential backoff (`shared/retry.py`; ~10 attempts, 1s→2s→4s→8s→10s) and attach themselves
+     once Kafka is healthy, and `kafka-init` pre-creates the topics (incl. `claim.escalated`). So a
+     fresh `up` no longer needs the old `podman restart claim-intake roe-adapter pipeline-orchestrator`
+     step. Confirm before driving the pipeline: `podman exec ei-ads-kafka /opt/bitnami/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --describe --group pipeline-orchestrator`
+     should list an active `aiokafka-...` member owning the `claim.received` / `roe.received`
+     partitions.
+   - **Heavy engines warm up.** Fraud Ring (Neo4j graph), Document Forgery (OCR/model stack), and the
+     LLM Service (embeddings + Chroma) build their backends lazily on first use. If you submit within
+     a few seconds of `up`, those engines can return before their signal is ready — the claim still
+     scores and all six engines complete, but you may see a LOWER score (e.g. AUTO_APPROVE) that cycle
+     because the CRITICAL fraud/forgery signals had not warmed. This is honest degradation, not a bug.
+     For a consistent high-risk (INVESTIGATE) demo, give the heavy engines ~30 s after they show
+     `Up` in `podman ps`, or simply submit the claim twice — the second run is warm. (Engine health
+     is best-effort: `GET /healthz` on an engine 200s once its client objects exist, which is before
+     the model is fully warm, so a short wait is still the reliable signal.)
 6. Browse `http://localhost:8090` (proxy maps host 8090 → container 8080; host 8080 can get stuck
    held by a leftover gvproxy forward). Only `8090` (proxy) and `5432` (postgres) publish to the host.
 7. Drive the pipeline (submit from INSIDE the network — internal services publish no host ports):
