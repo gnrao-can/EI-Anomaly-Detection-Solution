@@ -112,19 +112,57 @@ done < <(find services shared pyproject.toml .containerignore -type f \
 echo "materialised ${materialised} files."
 
 # --- 4. Build images sequentially -------------------------------------------
+# poetry install resolves the full (heavy-ML) dependency graph and needs several
+# GiB of RAM. On the 8 GiB VM, a running stack (~29 containers) leaves too little
+# free and the build is OOM-killed ("container exited on killed"). So before
+# building we STOP any running containers (the build does not need them) to give
+# the whole VM to the build; the stack is (re)started fresh in step 5.
+build_one() {
+  local cf="$1" svc="$2"
+  podman build -q -f "${cf}" -t "${IMAGE_PREFIX}_${svc}:latest" "${REPO_ROOT}" \
+    >/tmp/eiads-build-"${svc}".log 2>&1
+}
+
 if [[ "${DO_BUILD}" -eq 1 ]]; then
+  running="$(podman ps -q | wc -l | tr -d ' ')"
+  if [[ "${running}" -gt 0 ]]; then
+    log "Stopping ${running} running container(s) to free the VM for the build"
+    podman stop -t 5 $(podman ps -q) >/dev/null 2>&1 || true
+  fi
+
+  free_mib="$(podman machine ssh 'free -m' 2>/dev/null | awk '/^Mem:/{print $7}')"
+  [[ -n "${free_mib}" ]] && echo "VM memory available for build: ${free_mib} MiB"
+  if [[ -n "${free_mib}" && "${free_mib}" -lt 3500 ]]; then
+    warn "Only ${free_mib} MiB free. poetry install may OOM. Consider:"
+    warn "  podman machine stop && podman machine set --memory 12288 && podman machine start"
+  fi
+
   log "Building service images sequentially (parallel builds OOM the VM)"
   while IFS= read -r cf; do
     svc="$(basename "$(dirname "${cf}")")"
     printf '  -- building %s ... ' "${svc}"
-    if podman build -q -f "${cf}" -t "${IMAGE_PREFIX}_${svc}:latest" "${REPO_ROOT}" >/tmp/eiads-build-"${svc}".log 2>&1; then
+    if build_one "${cf}" "${svc}"; then
       echo "OK"
+    elif grep -qiE 'input/output error|unexpected EOF' "/tmp/eiads-build-${svc}.log"; then
+      # Google Drive had not fully synced a file — materialise + retry once.
+      echo "retry (Drive sync)"
+      find "services/${svc}" -type f -not -path '*/node_modules/*' -exec cat {} + >/dev/null 2>&1 || true
+      if build_one "${cf}" "${svc}"; then
+        echo "     OK on retry"
+      else
+        echo "     FAILED again — see /tmp/eiads-build-${svc}.log" >&2
+        tail -6 "/tmp/eiads-build-${svc}.log" >&2
+        exit 1
+      fi
     else
       echo "FAILED"
       echo "     see /tmp/eiads-build-${svc}.log (last lines):" >&2
       tail -6 "/tmp/eiads-build-${svc}.log" >&2
-      echo "     If this is an 'input/output error', it is Google Drive sync — re-run the script." >&2
-      echo "     If 'container exited on killed', the VM OOM'd — free memory or 'podman machine set --memory 12288'." >&2
+      if grep -qiE 'exited on killed|Killed|Cannot allocate memory' "/tmp/eiads-build-${svc}.log"; then
+        echo "     -> VM OOM. Give the VM more RAM and re-run:" >&2
+        echo "        podman machine stop && podman machine set --memory 12288 && podman machine start" >&2
+        echo "        (all containers were already stopped for the build, so freeing more is only via VM memory.)" >&2
+      fi
       exit 1
     fi
   done < <(find services -mindepth 2 -maxdepth 2 -name Containerfile | sort)
