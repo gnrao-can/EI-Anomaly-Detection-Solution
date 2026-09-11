@@ -47,7 +47,11 @@ unset DOCKER_HOST 2>/dev/null || true
 MACHINE_NAME="${MACHINE_NAME:-podman-machine-default}"
 IMAGE_PREFIX="ei-anomaly-detection-solution"
 NETWORK="${IMAGE_PREFIX}_default"
-COMPOSE_UP=(podman-compose --in-pod false up -d)
+# --no-build: this script already builds every image sequentially in step 4.
+# Without it, `podman-compose up` runs its OWN parallel build phase, which is
+# what OOMs the VM / trips the transient "ssh: handshake failed: EOF" broker
+# connection blip under load. We build once (sequentially) and only START here.
+COMPOSE_UP=(podman-compose --in-pod false up -d --no-build)
 
 # Services that talk to Kafka and self-heal via shared/retry on a cold start.
 KAFKA_SERVICES=(ei-ads-claim-intake ei-ads-roe-adapter ei-ads-pipeline-orchestrator)
@@ -191,7 +195,7 @@ done
 #     was fresh). Includes claim.escalated for the INVESTIGATE path (Req 2.7).
 log "Ensuring Kafka topics exist (kafka-init)"
 podman rm -f ei-ads-kafka-init >/dev/null 2>&1 || true
-podman-compose --in-pod false up -d kafka-init >/dev/null 2>&1 || true
+podman-compose --in-pod false up -d --no-build kafka-init >/dev/null 2>&1 || true
 sleep 6
 podman exec ei-ads-kafka /opt/bitnami/kafka/bin/kafka-topics.sh \
   --bootstrap-server localhost:9092 --list 2>/dev/null | grep -E 'claim|roe' || true
