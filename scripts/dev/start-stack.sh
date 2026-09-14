@@ -313,11 +313,25 @@ for i in $(seq 1 30); do
 done
 [[ "${attached}" -eq 0 ]] && warn "orchestrator consumer not confirmed attached yet; give it another ~20s (the retry runs up to ~10 attempts)."
 
-# 6d. Short heavy-engine warm-up. Fraud Ring (Neo4j), Document Forgery, and the
-#     LLM Service build their backends lazily; a claim submitted immediately can
-#     score lower that cycle. A brief pause makes the first demo warm.
-log "Warming heavy engines (~25s) so the first claim scores on warm signals"
-sleep 25
+# 6d. ACTIVELY warm the heavy engines. Fraud Ring (Neo4j), Document Forgery, and
+#     the LLM Service build their backends lazily on first use, so a claim
+#     submitted cold can score lower (AUTO_APPROVE, hidden from the dashboard).
+#     We fire one warm-up request at each so the demonstrator's FIRST claim
+#     scores on warm signals (INVESTIGATE). Best-effort; never fails the launch.
+log "Warming the heavy engines so the first demo claim scores on warm signals"
+_svc_token="$(grep -E '^ORCHESTRATOR_SERVICE_TOKEN=' "${_ENV_TOKEN_FILE}" 2>/dev/null | cut -d= -f2- || true)"
+if [[ -n "${_svc_token}" ]]; then
+  _warm_body='{"sin_hash":"2bf3ac6a024f7cabb733a9d65d9a7aea475fbb0971ad46895962d1b0a7a38b48","claim_id":"11111111-1111-1111-1111-111111111111","employer_bn":"123456789RP0001","insurable_hours":"800","insurable_earnings":"12000","economic_region_code":"59","noc_code":"63201","separation_date":"2024-03-15","claim_start_date":"2024-03-15","roe_earnings":"12000","tax_year":2024}'
+  for _ep in history-inconsistency-engine:8010 document-forgery-engine:8015 fraud-ring-engine:8023; do
+    podman run --rm --network "${NETWORK}" docker.io/curlimages/curl:8.10.1 \
+      -s -o /dev/null --max-time 40 -X POST "http://${_ep}/engine/analyze" \
+      -H "Authorization: Bearer ${_svc_token}" -H 'Content-Type: application/json' \
+      -d "${_warm_body}" >/dev/null 2>&1 || true
+    echo "  warmed ${_ep}"
+  done
+else
+  warn "no service token found to warm engines; the first claim may score AUTO_APPROVE (just submit again)."
+fi
 
 # --- Done --------------------------------------------------------------------
 log "Stack is up. Container status:"
@@ -325,21 +339,25 @@ podman ps --format '{{.Names}}\t{{.Status}}' | sort
 
 cat <<EOF
 
-------------------------------------------------------------------------------
-EI-ADS stack is up on network: ${NETWORK}
-  * Proxy / UI:   http://localhost:8090
-  * Postgres:     localhost:5432 (db=ei_ads, user=ei_ads_app)
+==============================================================================
+  EI-ADS is running.  Open the app in a browser:
 
-Drive the pipeline (see docs/regeneration/STATUS.md "Bring-up recipe" step 7):
-  CLAIMANT=\$(.venv-core/bin/python scripts/dev/mint-token.py --role CLAIMANT --ttl 3600)
-  run() { podman run --rm --network ${NETWORK} docker.io/curlimages/curl:8.10.1 "\$@"; }
-  # submit a claim (SIN must be Luhn-valid, e.g. 193456787) then a matching ROE
-  # with the same claimId, then read risk_assessments in Postgres.
+      http://localhost:8090
 
-Investigator dashboard cookie:
-  .venv-core/bin/python scripts/dev/mint-session-cookie.py --role INVESTIGATOR
+  DEMO (no logins/passwords needed — a dev role switcher is built in):
+    1. In the header, click  "🔧 Demo as: Claimant".
+    2. Go to "Submit a claim" and fill the form, e.g.:
+         SIN 193456787   Employer BN 123456789RP0001
+         Insurable hours 800   Insurable earnings 12000
+         Separation date 2024-03-15   Reason: Shortage of work
+       Submit — you'll get a Claim ID. (A matching ROE is auto-sent in dev.)
+    3. In the header, click  "🔧 Demo as: Investigator".
+    4. Open "Dashboard" — the claim appears in the review queue, scored.
 
-Tear down:
-  scripts/dev/start-stack.sh --down
-------------------------------------------------------------------------------
+  Tip: if the claim shows AUTO_APPROVE (low risk) it won't be in the queue —
+  the detection engines were still warming. Submit one more claim and it will
+  score INVESTIGATE.  See DEMO.md for the full walkthrough + troubleshooting.
+
+  Stop everything:   scripts/dev/start-stack.sh --down
+==============================================================================
 EOF

@@ -613,6 +613,13 @@ matching ROE to the real roe-adapter after the submit (`DEV_AUTO_ROE=true`, stan
 so a browser submit alone correlates + scores. Submitting directly to `claim-intake` with a minted
 CLAIMANT Bearer (recipe step 7) remains the non-UI path.
 
+**Business-partner demo handover: `DEMO.md` (repo root).** A self-contained, non-technical guide
+— prerequisites, ONE command (`scripts/dev/start-stack.sh`), the URL (`http://localhost:8090`), and
+the in-browser click-through using the built-in **"🔧 Demo as: Claimant / Investigator"** role
+switcher (no tokens/cookies/DevTools). The launcher below actively warms the engines and prints the
+same demo steps on completion. Use `DEMO.md` for demonstrations; the technical recipe below remains
+the operator reference.
+
 **One-command launcher: `scripts/dev/start-stack.sh`.** This script codifies the whole recipe
 below (machine start → mint dev token → materialise the Drive build context → sequential image
 build → `podman-compose up` → readiness waits for Kafka + orchestrator consumer + heavy-engine
