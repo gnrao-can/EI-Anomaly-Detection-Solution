@@ -71,6 +71,17 @@ if _HAS_PYDANTIC_SETTINGS:
         # ── Claim Intake Service (reverse-proxy target) ─────────────
         claim_intake_url: str = "http://localhost:8001"
 
+        # ── ROE Adapter (DEV-ONLY auto-ROE convenience) ─────────────
+        # In production the ROE arrives from ROE Web (the employer), a separate
+        # actor from the claimant (design.md "ROE Adapter"). For a smooth LOCAL
+        # demo the portal can, right after a successful claim submit, post a
+        # matching ROE to this adapter so the pipeline pairs + scores without a
+        # manual terminal step. Gated by ``is_development`` — NEVER active in prod.
+        roe_adapter_url: str = "http://localhost:8002"
+        # Explicit off-switch even in dev (set false to require the real ROE Web
+        # path / a manually posted ROE).
+        dev_auto_roe: bool = True
+
         # ── GCKey OAuth 2.0 ─────────────────────────────────────────
         gckey_jwks_url: str = "https://auth.id.gc.ca/.well-known/jwks.json"
         gckey_client_id: str = "ei-ads-local"
@@ -143,6 +154,12 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
             self.claim_intake_url = os.environ.get(
                 "CLAIM_INTAKE_URL", "http://localhost:8001"
             )
+
+            # DEV-ONLY auto-ROE convenience (see the pydantic Settings above).
+            self.roe_adapter_url = os.environ.get(
+                "ROE_ADAPTER_URL", "http://localhost:8002"
+            )
+            self.dev_auto_roe = _env_bool("DEV_AUTO_ROE", True)
 
             self.gckey_jwks_url = os.environ.get(
                 "GCKEY_JWKS_URL", "https://auth.id.gc.ca/.well-known/jwks.json"

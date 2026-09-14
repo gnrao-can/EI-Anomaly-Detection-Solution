@@ -675,6 +675,14 @@ services:
       CLAIM_INTAKE_URL: "http://claim-intake:8001"
       SESSION_SECRET: "local_dev_portal_session_secret_change_me"
       GCKEY_JWKS_URL: "http://jwks:80/.well-known/jwks.json"
+      # DEV-ONLY auto-ROE: with APP_ENV=development the BFF, after a successful
+      # claim submit, posts a MATCHING ROE to the roe-adapter (standing in for
+      # ROE Web) so a browser submission drives the full pipeline (pair + score)
+      # without a manual ROE step. Over the REAL roe-adapter -> Kafka transport;
+      # gated to dev only. Set DEV_AUTO_ROE=false to require the real ROE path.
+      APP_ENV: "development"
+      ROE_ADAPTER_URL: "http://roe-adapter:8002"
+      DEV_AUTO_ROE: "true"
       # GCKey OAuth endpoints: no local IdP, so the login flow is not walkable
       # in compose; the dashboard read/queue/detail/disposition flow IS.
       SIN_HASH_SALT: "local_dev_salt_change_me"

@@ -663,8 +663,19 @@ class TestClaimSubmission:
     }
 
     def _mock_intake(self, capture, *, status_code=202, body=None):
-        """Install an httpx MockTransport that impersonates claim-intake."""
+        """Install an httpx MockTransport that impersonates claim-intake.
+
+        Disables the DEV-ONLY auto-ROE side effect by default so these tests
+        exercise the pure thin-forwarder contract (a dedicated test below
+        re-enables it). The auto-ROE uses its own httpx client — not this
+        proxy_transport — so leaving it on would otherwise fire a real
+        (swallowed) network call to the roe-adapter on every submit.
+        """
         import httpx
+
+        # Focus these tests on the intake forward; opt out of the dev auto-ROE.
+        if getattr(app.state, "settings", None) is not None:
+            app.state.settings.dev_auto_roe = False
 
         def handler(request: httpx.Request) -> httpx.Response:
             capture["method"] = request.method
@@ -749,6 +760,66 @@ class TestClaimSubmission:
         # A multipart body carrying the file was forwarded.
         assert "multipart" in capture["content_type"]
         assert b"roe.pdf" in capture["body"]
+
+    def test_dev_auto_roe_posts_matching_roe_when_enabled(self, client, monkeypatch):
+        """DEV-ONLY: with dev_auto_roe on, a 202 submit also posts a matching ROE
+        to the roe-adapter (same claim_id) over its own client, standing in for
+        ROE Web so the pipeline can pair + score from a browser submit."""
+        capture: dict = {}
+        self._mock_intake(capture)  # returns claim_id=intake-123
+        # Re-enable the dev auto-ROE that _mock_intake disabled.
+        app.state.settings.dev_auto_roe = True
+        app.state.settings.app_env = "development"
+        app.state.settings.roe_adapter_url = "http://roe-adapter:8002"
+
+        roe_calls: list = []
+
+        # The auto-ROE uses a plain httpx.AsyncClient; capture its POST.
+        import httpx as _httpx
+
+        async def fake_post(self, url, **kwargs):  # noqa: ANN001
+            roe_calls.append({"url": str(url), "json": kwargs.get("json"),
+                              "headers": kwargs.get("headers", {})})
+            return _httpx.Response(202, json={"claim_id": "intake-123",
+                                              "status": "RECEIVED", "published": True})
+
+        monkeypatch.setattr(_httpx.AsyncClient, "post", fake_post)
+
+        resp = client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            cookies=_session_cookie("CLAIMANT", "sinhash-abc"),
+        )
+        assert resp.status_code == 202
+        # Exactly one auto-ROE was posted to the roe-adapter, same claim_id,
+        # carrying the submitted employer/earnings fields + the GCKey Bearer.
+        roe = [c for c in roe_calls if c["url"].endswith("/roe/rest")]
+        assert len(roe) == 1, roe_calls
+        body = roe[0]["json"]
+        assert body["claimId"] == "intake-123"
+        assert body["employerBn"] == self.VALID_FIELDS["employer_bn"]
+        assert body["insurableEarnings"] == self.VALID_FIELDS["insurable_earnings"]
+        assert roe[0]["headers"].get("Authorization") == f"Bearer {TEST_ACCESS_TOKEN}"
+
+    def test_dev_auto_roe_disabled_posts_no_roe(self, client, monkeypatch):
+        """With dev_auto_roe off, a submit forwards ONLY to intake (no ROE)."""
+        capture: dict = {}
+        self._mock_intake(capture)  # this also sets dev_auto_roe = False
+        roe_calls: list = []
+        import httpx as _httpx
+
+        async def fake_post(self, url, **kwargs):  # noqa: ANN001
+            roe_calls.append(str(url))
+            return _httpx.Response(202, json={})
+
+        monkeypatch.setattr(_httpx.AsyncClient, "post", fake_post)
+        resp = client.post(
+            "/api/v1/claims",
+            data=dict(self.VALID_FIELDS),
+            cookies=_session_cookie("CLAIMANT", "x"),
+        )
+        assert resp.status_code == 202
+        assert not any(u.endswith("/roe/rest") for u in roe_calls), roe_calls
 
     def test_intake_unreachable_returns_502(self, client):
         import httpx

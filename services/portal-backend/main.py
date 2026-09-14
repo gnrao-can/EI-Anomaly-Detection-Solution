@@ -938,6 +938,37 @@ async def create_claim(
             status_code=502, detail="Claim Intake Service is unavailable."
         ) from exc
 
+    # DEV-ONLY: stand in for ROE Web so a browser submit is a complete demo.
+    # In production the ROE arrives from the employer via ROE Web (a separate
+    # actor); locally we post a matching ROE to the REAL roe-adapter (over the
+    # real Kafka -> orchestrator transport, nothing faked) so the pipeline pairs
+    # + scores without a manual terminal step. Gated by is_development + the
+    # dev_auto_roe switch, and strictly best-effort: any failure here never
+    # affects the claim response the SPA receives.
+    if (
+        upstream.status_code == status.HTTP_202_ACCEPTED
+        and getattr(settings, "is_development", False)
+        and getattr(settings, "dev_auto_roe", False)
+    ):
+        # Source the ROE's employer/earnings fields from the ORIGINAL submitted
+        # form (the intake 202 body carries only {claim_id, status}). Starlette
+        # caches the request body, so form() works after body() was read.
+        claim_fields: dict[str, str] = {}
+        try:
+            form = await request.form()
+            for name in _REQUIRED_CLAIM_FIELDS:
+                val = form.get(name)
+                if isinstance(val, str):
+                    claim_fields[name] = val
+        except Exception:  # noqa: BLE001 - dev convenience only
+            claim_fields = {}
+        await _maybe_post_dev_roe(
+            settings,
+            upstream_body=upstream.content,
+            claim_fields=claim_fields,
+            bearer=forward_headers["Authorization"],
+        )
+
     response_headers = {
         k: v for k, v in upstream.headers.items() if k.lower() not in _PROXY_HOP_BY_HOP
     }
@@ -947,6 +978,60 @@ async def create_claim(
         headers=response_headers,
         media_type=upstream.headers.get("content-type"),
     )
+
+
+async def _maybe_post_dev_roe(
+    settings: Any,
+    *,
+    upstream_body: bytes,
+    claim_fields: dict[str, str],
+    bearer: str,
+) -> None:
+    """DEV-ONLY: post a matching ROE to the roe-adapter for the just-created claim.
+
+    Stands in for the employer-side ROE Web submitter so a browser claim submit
+    drives the full pipeline locally. Builds the ROE JSON from the ORIGINAL
+    submitted claim fields (``claim_fields``) keyed by the SAME ``claim_id`` the
+    Claim Intake Service just assigned (parsed from ``upstream_body``), so the
+    orchestrator pairs them (pairing is on claim_id only). Posts to the REAL
+    roe-adapter over the real Kafka -> orchestrator transport — nothing faked.
+    Best-effort: swallows every error so the claim submit is never affected.
+    """
+    if not _HAS_HTTPX:
+        return
+    try:
+        payload = json.loads(upstream_body.decode("utf-8"))
+    except Exception:  # noqa: BLE001 - non-JSON 202 body => nothing to pair
+        return
+    claim_id = payload.get("claim_id") or payload.get("claimId")
+    if not claim_id:
+        return
+
+    # Build the ROE from the fields the claimant actually submitted (the intake
+    # 202 body carries only {claim_id, status}). The SPA form does not collect
+    # economic_region_code / noc_code, so those are omitted — the normalizer
+    # treats them as optional and the engines degrade gracefully.
+    roe_body = {
+        "claimId": str(claim_id),
+        "employerBn": claim_fields.get("employer_bn", ""),
+        "sin": claim_fields.get("sin", ""),
+        "insurableEarnings": claim_fields.get("insurable_earnings", ""),
+        "insurableHours": claim_fields.get("insurable_hours", ""),
+        "separationDate": claim_fields.get("separation_date", ""),
+    }
+    # Drop empty keys so the normalizer applies its own defaults / mandatory
+    # checks cleanly (it treats absent optional fields as "").
+    roe_body = {k: v for k, v in roe_body.items() if v != ""}
+
+    url = f"{settings.roe_adapter_url.rstrip('/')}/roe/rest"
+    headers = {"Authorization": bearer, "Content-Type": "application/json"}
+    # Use a plain client (NOT app.state.proxy_transport — that intercepts the
+    # intake forward for in-process tests; the roe-adapter is a distinct service).
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.post(url, json=roe_body, headers=headers)
+    except Exception:  # noqa: BLE001 - dev convenience must never break submit
+        pass
 
 
 @app.get("/api/v1/privacy/access")
