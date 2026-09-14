@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 
 import { useAuth } from '../auth/AuthContext';
 import { ROLES } from '../auth/roles';
+import DevRoleSwitcher from './DevRoleSwitcher';
 import LanguageSwitcher from './LanguageSwitcher';
 
 /**
@@ -51,6 +52,7 @@ export default function Layout() {
             )}
           </ul>
           <div className="app-nav-actions">
+            <DevRoleSwitcher />
             <LanguageSwitcher />
             {isAuthenticated ? (
               <button type="button" onClick={() => void logout()}>

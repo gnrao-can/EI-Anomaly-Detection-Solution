@@ -33,6 +33,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import os
 import uuid
 from contextlib import asynccontextmanager
 from typing import Any, Optional
@@ -671,6 +672,113 @@ async def gckey_logout() -> JSONResponse:
     """Clear the GCKey session cookie."""
     response = JSONResponse(content={"status": "logged_out"})
     _clear_session_cookie(response)
+    return response
+
+
+# ---------------------------------------------------------------------------
+# DEV-ONLY one-click role login (no GCKey IdP locally)
+# ---------------------------------------------------------------------------
+# There is no GCKey identity provider in the local compose stack, so the real
+# OAuth login flow is a dead end. These endpoints let a demonstrator pick a role
+# and get a fully-formed session (HttpOnly cookie carrying a REAL, JWKS-valid
+# GCKey Bearer minted from the dev signing key) with ONE click — no DevTools,
+# no manual token/cookie handling. Reuses the exact _set_session_cookie the real
+# GCKey callback uses; nothing about the production auth path changes. Gated by
+# settings.is_development + dev_login_enabled — the endpoints 404 otherwise.
+
+_DEV_LOGIN_KID = "ei-ads-local-dev"
+# A stable per-role demo SIN so a CLAIMANT's session sin_hash matches claims
+# they submit (own-data key). Luhn-valid, not starting with 0.
+_DEV_CLAIMANT_SIN = "193456787"
+
+
+def _dev_login_available(settings: Any) -> bool:
+    return bool(
+        getattr(settings, "is_development", False)
+        and getattr(settings, "dev_login_enabled", False)
+    )
+
+
+def _mint_dev_access_token(settings: Any, role: Role, subject: str) -> Optional[str]:
+    """Mint a GCKey-style RS256 Bearer for *role*, signed by the dev JWKS key.
+
+    Returns the token, or ``None`` when the signing key or python-jose is
+    unavailable (the session is still set; downstream Bearer-forward calls would
+    then 401, surfaced to the demonstrator rather than silently bypassed).
+    """
+    key_path = getattr(settings, "dev_signing_key_path", "")
+    if not key_path or not os.path.exists(key_path):
+        return None
+    try:
+        import time as _time
+
+        from jose import jwt as _jwt
+
+        with open(key_path, "r", encoding="utf-8") as handle:
+            private_pem = handle.read()
+        now = int(_time.time())
+        claims = {
+            "sub": subject,
+            "iat": now,
+            "nbf": now,
+            "exp": now + 24 * 60 * 60,
+            "roles": [role.value],
+        }
+        return _jwt.encode(
+            claims, private_pem, algorithm="RS256", headers={"kid": _DEV_LOGIN_KID}
+        )
+    except Exception:  # noqa: BLE001 - dev convenience; never crash the login
+        return None
+
+
+@app.get("/auth/dev/enabled")
+async def dev_login_enabled() -> JSONResponse:
+    """Tell the SPA whether the one-click dev login is available (dev only)."""
+    settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
+    return JSONResponse(content={"enabled": _dev_login_available(settings)})
+
+
+@app.get("/auth/dev/login")
+async def dev_login(role: str = "CLAIMANT", next: str = "/") -> Response:
+    """DEV-ONLY: establish a session for *role* in one click, then redirect.
+
+    Mints a real JWKS-valid GCKey Bearer for the role, sets the same signed
+    session cookie the GCKey callback sets (a CLAIMANT also gets a stable
+    own-data ``sin_hash``), and 302s to ``next`` (default the SPA home). 404s
+    unless ``is_development`` + ``dev_login_enabled``.
+    """
+    settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
+    if not _dev_login_available(settings):
+        raise HTTPException(status_code=404, detail="Not found.")
+
+    role_str = (role or "CLAIMANT").strip().upper()
+    try:
+        role_enum = Role(role_str)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown role {role!r}; expected one of "
+            f"{[r.value for r in Role]}.",
+        )
+
+    subject = f"dev-{role_str.lower()}-{uuid.uuid4()}"
+    # A CLAIMANT session is keyed by sin_hash (own-data); staff roles are not.
+    sin_hash: Optional[str] = None
+    if role_enum == Role.CLAIMANT:
+        sin_hash = _hash_sin(_DEV_CLAIMANT_SIN, settings.sin_hash_salt)
+
+    access_token = _mint_dev_access_token(settings, role_enum, subject)
+
+    # Only redirect within the app (avoid an open-redirect even in dev).
+    target = next if isinstance(next, str) and next.startswith("/") else "/"
+    response = RedirectResponse(url=target, status_code=302)
+    _set_session_cookie(
+        response,
+        role_enum,
+        sin_hash,
+        access_token=access_token,
+        subject=subject,
+    )
     return response
 
 

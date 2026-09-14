@@ -683,9 +683,21 @@ services:
       APP_ENV: "development"
       ROE_ADAPTER_URL: "http://roe-adapter:8002"
       DEV_AUTO_ROE: "true"
-      # GCKey OAuth endpoints: no local IdP, so the login flow is not walkable
-      # in compose; the dashboard read/queue/detail/disposition flow IS.
+      # DEV-ONLY one-click role login: no GCKey IdP locally, so the portal signs
+      # a per-role, JWKS-valid GCKey Bearer with the dev signing key (mounted
+      # read-only below) and sets the normal session cookie. Lets a demonstrator
+      # pick a role in the browser with no DevTools/token handling. Gated by
+      # APP_ENV=development + DEV_LOGIN_ENABLED; the endpoints 404 in prod.
+      DEV_LOGIN_ENABLED: "true"
+      DEV_SIGNING_KEY_PATH: "/app/dev-jwks/signing-key.pem"
+      # GCKey OAuth endpoints: no local IdP, so the real login flow is not
+      # walkable in compose; the dev role-login above stands in for it locally.
       SIN_HASH_SALT: "local_dev_salt_change_me"
+    volumes:
+      # The dev JWKS signing key (written by scripts/dev/gen-service-token.py),
+      # read-only, so the dev-login endpoint can sign per-role Bearers. Never
+      # present in a production image/deploy.
+      - ./scripts/dev/jwks:/app/dev-jwks:ro
     # depends_on omitted — see claim-intake note above.
     restart: unless-stopped
 

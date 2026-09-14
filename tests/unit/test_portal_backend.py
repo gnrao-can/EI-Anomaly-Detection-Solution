@@ -928,3 +928,131 @@ class TestSessionSigning:
         token = sign_session({"role": "CLAIMANT"}, "secret-a")
         with pytest.raises(_auth.SessionError):
             _auth.verify_session(token, "secret-b")
+
+
+# ---------------------------------------------------------------------------
+# DEV-ONLY one-click role login — GET /auth/dev/enabled + /auth/dev/login
+# ---------------------------------------------------------------------------
+
+
+class TestDevLogin:
+    """The dev role-login lets a demonstrator pick a role with one click (no
+    GCKey IdP locally). It reuses the SAME signed session cookie the real GCKey
+    callback issues, and is gated by is_development + dev_login_enabled."""
+
+    _REPO_ROOT = os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "..")
+    )
+    _SIGNING_KEY = os.path.join(
+        _REPO_ROOT, "scripts", "dev", "jwks", "signing-key.pem"
+    )
+
+    def _decode_session(self, cookie_value: str) -> dict:
+        """Verify + decode the session cookie the endpoint set."""
+        return _auth.verify_session(cookie_value, SESSION_SECRET, max_age=3600)
+
+    def test_enabled_probe_true_in_development(self, client):
+        app.state.settings.app_env = "development"
+        app.state.settings.dev_login_enabled = True
+        resp = client.get("/auth/dev/enabled")
+        assert resp.status_code == 200
+        assert resp.json() == {"enabled": True}
+
+    def test_enabled_probe_false_when_not_development(self, client):
+        app.state.settings.app_env = "production"
+        resp = client.get("/auth/dev/enabled")
+        assert resp.status_code == 200
+        assert resp.json() == {"enabled": False}
+
+    def test_dev_login_claimant_sets_session_with_sin_hash(self, client):
+        app.state.settings.app_env = "development"
+        app.state.settings.dev_login_enabled = True
+        client.cookies.clear()
+        # The endpoint honours an in-app `next` (the SPA passes /submit for a
+        # claimant); default is "/".
+        resp = client.get(
+            "/auth/dev/login",
+            params={"role": "CLAIMANT", "next": "/submit"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "/submit"
+        assert COOKIE_NAME in resp.cookies
+        payload = self._decode_session(resp.cookies[COOKIE_NAME])
+        assert payload["role"] == "CLAIMANT"
+        # A CLAIMANT session is keyed by sin_hash (own-data).
+        assert isinstance(payload.get("sin_hash"), str) and payload["sin_hash"]
+
+    def test_dev_login_investigator_sets_session_no_sin_hash(self, client):
+        app.state.settings.app_env = "development"
+        app.state.settings.dev_login_enabled = True
+        client.cookies.clear()
+        resp = client.get(
+            "/auth/dev/login", params={"role": "INVESTIGATOR"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "/"  # default next when not given
+        payload = self._decode_session(resp.cookies[COOKIE_NAME])
+        assert payload["role"] == "INVESTIGATOR"
+        assert not payload.get("sin_hash")
+
+    def test_dev_login_next_must_be_in_app(self, client):
+        # An external redirect target is ignored (no open redirect even in dev).
+        app.state.settings.app_env = "development"
+        app.state.settings.dev_login_enabled = True
+        resp = client.get(
+            "/auth/dev/login",
+            params={"role": "INVESTIGATOR", "next": "https://evil.example/x"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "/"
+
+    def test_dev_login_mints_access_token_when_key_present(self, client):
+        # With the real dev signing key configured, the session carries a
+        # JWKS-valid GCKey Bearer (roles claim = the chosen role) for the
+        # downstream Bearer-forward on a claim submit.
+        if not os.path.exists(self._SIGNING_KEY):
+            pytest.skip("dev signing key not present (run gen-service-token.py)")
+        app.state.settings.app_env = "development"
+        app.state.settings.dev_login_enabled = True
+        app.state.settings.dev_signing_key_path = self._SIGNING_KEY
+        resp = client.get(
+            "/auth/dev/login", params={"role": "CLAIMANT"}, follow_redirects=False
+        )
+        payload = self._decode_session(resp.cookies[COOKIE_NAME])
+        token = payload.get("access_token")
+        assert isinstance(token, str) and token.count(".") == 2  # a JWT
+        # The token's roles claim matches the chosen role.
+        import base64 as _b64
+        import json as _json
+
+        body = token.split(".")[1]
+        body += "=" * (-len(body) % 4)
+        claims = _json.loads(_b64.urlsafe_b64decode(body))
+        assert claims["roles"] == ["CLAIMANT"]
+
+    def test_dev_login_404_when_disabled(self, client):
+        app.state.settings.app_env = "development"
+        app.state.settings.dev_login_enabled = False
+        resp = client.get(
+            "/auth/dev/login", params={"role": "CLAIMANT"}, follow_redirects=False
+        )
+        assert resp.status_code == 404
+
+    def test_dev_login_404_when_not_development(self, client):
+        app.state.settings.app_env = "production"
+        app.state.settings.dev_login_enabled = True
+        resp = client.get(
+            "/auth/dev/login", params={"role": "CLAIMANT"}, follow_redirects=False
+        )
+        assert resp.status_code == 404
+
+    def test_dev_login_rejects_unknown_role(self, client):
+        app.state.settings.app_env = "development"
+        app.state.settings.dev_login_enabled = True
+        resp = client.get(
+            "/auth/dev/login", params={"role": "WIZARD"}, follow_redirects=False
+        )
+        assert resp.status_code == 400

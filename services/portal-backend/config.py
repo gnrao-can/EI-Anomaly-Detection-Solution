@@ -82,6 +82,15 @@ if _HAS_PYDANTIC_SETTINGS:
         # path / a manually posted ROE).
         dev_auto_roe: bool = True
 
+        # ── DEV-ONLY one-click role login (no GCKey IdP locally) ────
+        # Path to the dev JWKS signing key (written by gen-service-token.py and
+        # served as the JWKS). The dev-login endpoint signs a per-role GCKey
+        # Bearer with it so a browser session gets a real, JWKS-valid token
+        # without a GCKey IdP. Mounted read-only into the container. Gated by
+        # is_development; the endpoint 404s in prod.
+        dev_signing_key_path: str = "/app/dev-jwks/signing-key.pem"
+        dev_login_enabled: bool = True
+
         # ── GCKey OAuth 2.0 ─────────────────────────────────────────
         gckey_jwks_url: str = "https://auth.id.gc.ca/.well-known/jwks.json"
         gckey_client_id: str = "ei-ads-local"
@@ -160,6 +169,12 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
                 "ROE_ADAPTER_URL", "http://localhost:8002"
             )
             self.dev_auto_roe = _env_bool("DEV_AUTO_ROE", True)
+
+            # DEV-ONLY one-click role login (see the pydantic Settings above).
+            self.dev_signing_key_path = os.environ.get(
+                "DEV_SIGNING_KEY_PATH", "/app/dev-jwks/signing-key.pem"
+            )
+            self.dev_login_enabled = _env_bool("DEV_LOGIN_ENABLED", True)
 
             self.gckey_jwks_url = os.environ.get(
                 "GCKEY_JWKS_URL", "https://auth.id.gc.ca/.well-known/jwks.json"
