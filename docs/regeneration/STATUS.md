@@ -608,8 +608,10 @@ HMAC-SHA256 over `SESSION_SECRET` the BFF uses) so the dashboard IS browsable wi
 see the recipe below. Claim SUBMISSION through the portal needs a GCKey access token in the session
 (the BFF forwards it as a Bearer to intake); with no local IdP, mint the session cookie WITH an
 embedded JWKS-valid Bearer — `scripts/dev/mint-session-cookie.py --role CLAIMANT --with-access-token`
-— so the `/submit` page works end to end (see recipe step 9). Submitting directly to `claim-intake`
-with a minted CLAIMANT Bearer (recipe step 7) remains the non-UI path.
+— so the `/submit` page works end to end (see recipe step 9). In dev the portal also auto-posts a
+matching ROE to the real roe-adapter after the submit (`DEV_AUTO_ROE=true`, standing in for ROE Web),
+so a browser submit alone correlates + scores. Submitting directly to `claim-intake` with a minted
+CLAIMANT Bearer (recipe step 7) remains the non-UI path.
 
 **One-command launcher: `scripts/dev/start-stack.sh`.** This script codifies the whole recipe
 below (machine start → mint dev token → materialise the Drive build context → sequential image
@@ -677,11 +679,20 @@ failures noted in "Task 30 — compose gotchas" below:**
    Set that `ei_ads_session` cookie for `localhost:8090` (devtools → Application → Cookies), open
    `http://localhost:8090/submit`, and fill the form (Luhn-valid SIN e.g. `193456787`, employer BN
    `123456789RP0001`, hours/earnings, a past separation date). On success the page shows the
-   Claim_ID. NOTE — the SPA submits only the CLAIM; the pipeline correlates it with a matching ROE
-   (in prod, ROE Web sends it). Until that ROE arrives the claim stays `RECEIVED` (no score). To
-   complete the thread locally, post the matching ROE (same `claimId`) to `roe-adapter:8002/roe/rest`
-   as in step 7, then read `risk_assessments`. Nothing is bypassed: `--with-access-token` supplies
-   the exact Bearer the missing GCKey IdP would have issued, signed by the dev JWKS signing key.
+   Claim_ID. Nothing is bypassed: `--with-access-token` supplies the exact Bearer the missing GCKey
+   IdP would have issued, signed by the dev JWKS signing key.
+   **AUTO-ROE (dev only) — the submit alone now drives the full pipeline.** In production the SPA
+   submits only the CLAIM and a matching ROE arrives separately from ROE Web (the employer). Locally
+   there is no ROE Web, so the portal-backend (when `APP_ENV=development` + `DEV_AUTO_ROE=true`, both
+   set in the compose) automatically posts a MATCHING ROE (same `claim_id`, from the submitted form
+   fields, carrying the same GCKey Bearer) to the REAL `roe-adapter` right after the 202 — over the
+   real roe-adapter → Kafka → orchestrator transport, nothing faked, standing in for ROE Web. So a
+   single browser submit correlates + scores on its own; give it ~15 s, then read `risk_assessments`
+   (or switch to the INVESTIGATOR cookie and reload the dashboard). Two caveats: (a) engines must be
+   WARM for a high-risk (INVESTIGATE) result — a cold submit lands AUTO_APPROVE, which the dashboard
+   correctly hides (it only shows FLAG_FOR_REVIEW/INVESTIGATE); warm them (step 5a) or submit twice;
+   (b) to test the true separate-ROE path instead, set `DEV_AUTO_ROE=false` on portal-backend and
+   post the ROE manually (same `claimId`) to `roe-adapter:8002/roe/rest` as in step 7.
 
 **LLM Service walkthrough (Req 6.6 / 7.8 — the two classification checks).** The `llm-service`
 (8005) is internal-only; drive it (and the two engines that consume it) with a throwaway `curl`
