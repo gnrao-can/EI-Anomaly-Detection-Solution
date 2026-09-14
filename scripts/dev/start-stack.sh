@@ -19,9 +19,17 @@
 #      orchestrator's consumer group attached, then a short heavy-engine warm-up.
 #
 # Usage:
-#   scripts/dev/start-stack.sh            # full: build + up + wait
-#   scripts/dev/start-stack.sh --no-build # skip the image build (images present)
-#   scripts/dev/start-stack.sh --down     # tear the stack down and exit
+#   scripts/dev/start-stack.sh              # full: build + up + wait
+#   scripts/dev/start-stack.sh --no-build   # skip the image build (images present)
+#   scripts/dev/start-stack.sh --fresh-token# force a new JWKS keypair + token
+#   scripts/dev/start-stack.sh --down       # tear the stack down and exit
+#
+# Token handling: the local-dev JWKS + INVESTIGATOR token (.env.dev-token) is
+# (re)generated only when missing or expired, so re-running the script against a
+# live stack does NOT rotate the signing key out from under running containers.
+# When the token DOES change, the six token-consuming services (orchestrator +
+# the five auth-gated engines) are force-recreated so they reload it — this is
+# what prevents the '401 Unauthorized' on internal engine calls (Req 19.7).
 #
 # After it finishes, drive the pipeline with the commands in STATUS.md
 # ("Drive the pipeline" / "LLM Service walkthrough"), e.g. mint a CLAIMANT token
@@ -56,12 +64,33 @@ COMPOSE_UP=(podman-compose --in-pod false up -d --no-build)
 # Services that talk to Kafka and self-heal via shared/retry on a cold start.
 KAFKA_SERVICES=(ei-ads-claim-intake ei-ads-roe-adapter ei-ads-pipeline-orchestrator)
 
+# FYI (documentation): the six services that PRESENT a token from .env.dev-token
+# via `env_file` on internal engine/scorer/adapter calls. NOTE: on a token/key
+# change we recreate ALL running containers, not just these — because the key
+# rotation also invalidates the cached JWKS of every service that VALIDATES a
+# bearer (~19 of them; shared.auth caches the JWKS for GCKEY_JWKS_CACHE_TTL,
+# default 3600s), so a partial recreate would leave the rest 401ing for up to an
+# hour. Kept here only to document who consumes the token.
+TOKEN_SERVICES=(
+  pipeline-orchestrator
+  history-inconsistency-engine
+  regional-analysis-engine
+  geographic-anomaly-engine
+  fraud-ring-engine
+  document-forgery-engine
+)
+
+_ENV_TOKEN_FILE="${REPO_ROOT}/.env.dev-token"
+_JWKS_FILE="${REPO_ROOT}/scripts/dev/jwks/.well-known/jwks.json"
+
 DO_BUILD=1
 DO_DOWN=0
+FRESH_TOKEN=0
 for arg in "$@"; do
   case "${arg}" in
-    --no-build) DO_BUILD=0 ;;
-    --down)     DO_DOWN=1 ;;
+    --no-build)    DO_BUILD=0 ;;
+    --down)        DO_DOWN=1 ;;
+    --fresh-token) FRESH_TOKEN=1 ;;
     -h|--help)
       sed -n '2,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
       exit 0 ;;
@@ -94,13 +123,51 @@ else
 fi
 
 # --- 2. Dev auth material (JWKS + INVESTIGATOR service token) -----------------
-log "Minting the local-dev JWKS + service token (.env.dev-token)"
-if [[ -x .venv-core/bin/python ]]; then
-  .venv-core/bin/python scripts/dev/gen-service-token.py
-else
-  warn ".venv-core/bin/python not found; falling back to 'python' (needs python-jose)."
-  python scripts/dev/gen-service-token.py
+# gen-service-token.py regenerates the RSA keypair + JWKS + token on EVERY run.
+# Doing that against an already-running stack is the 401 trap: the jwks container
+# then serves a NEW key while already-running token-consumers still hold the OLD
+# token. So only (re)generate when the material is missing/expired, or when
+# --fresh-token is passed. We snapshot the token before/after to know whether
+# the token-consuming services must be recreated in step 5.
+PY=".venv-core/bin/python"; [[ -x "${PY}" ]] || { warn "${PY} not found; using 'python' (needs python-jose)."; PY="python"; }
+
+_token_before=""
+[[ -f "${_ENV_TOKEN_FILE}" ]] && _token_before="$(grep -E '^ORCHESTRATOR_SERVICE_TOKEN=' "${_ENV_TOKEN_FILE}" | cut -d= -f2- || true)"
+
+_token_expired=0
+if [[ -n "${_token_before}" ]]; then
+  # Reject if exp is in the past (or unparseable) so we refresh a stale token.
+  "${PY}" - "$_token_before" <<'PYEOF' || _token_expired=1
+import base64, json, sys, time
+tok = sys.argv[1]
+try:
+    p = tok.split(".")[1]; p += "=" * (-len(p) % 4)
+    exp = json.loads(base64.urlsafe_b64decode(p)).get("exp", 0)
+    sys.exit(0 if exp > time.time() + 60 else 1)
+except Exception:
+    sys.exit(1)
+PYEOF
 fi
+
+if [[ "${FRESH_TOKEN}" -eq 1 || ! -f "${_ENV_TOKEN_FILE}" || ! -f "${_JWKS_FILE}" || "${_token_expired}" -eq 1 ]]; then
+  if [[ "${FRESH_TOKEN}" -eq 1 ]]; then
+    log "Minting the local-dev JWKS + service token (--fresh-token requested)"
+  elif [[ ! -f "${_ENV_TOKEN_FILE}" || ! -f "${_JWKS_FILE}" ]]; then
+    log "Minting the local-dev JWKS + service token (none found)"
+  else
+    log "Minting the local-dev JWKS + service token (existing token expired)"
+  fi
+  "${PY}" scripts/dev/gen-service-token.py
+else
+  log "Reusing existing valid .env.dev-token (pass --fresh-token to force a new keypair)"
+fi
+
+_token_after=""
+[[ -f "${_ENV_TOKEN_FILE}" ]] && _token_after="$(grep -E '^ORCHESTRATOR_SERVICE_TOKEN=' "${_ENV_TOKEN_FILE}" | cut -d= -f2- || true)"
+# If the token changed, running token-consumers hold a stale one and MUST be
+# recreated in step 5 so they reload .env.dev-token.
+TOKEN_CHANGED=0
+[[ "${_token_before}" != "${_token_after}" ]] && TOKEN_CHANGED=1
 
 # --- 3. Force-materialise the Drive-backed build context ---------------------
 # Google Drive File Stream materialises files lazily; podman racing an unsynced
@@ -175,8 +242,38 @@ else
 fi
 
 # --- 5. Bring the stack up ---------------------------------------------------
+# Token/key rotation blast radius: gen-service-token.py regenerates the RSA
+# KEYPAIR, not just the token. Every service that VALIDATES a GCKey bearer (all
+# ~19 engines/adapters/scorer/portal — shared.auth) caches the JWKS for up to
+# GCKEY_JWKS_CACHE_TTL (default 3600s), so after a key change a REUSED container
+# keeps validating against the OLD public key and 401s every request for up to
+# an hour. `up --no-build` reuses running containers, so on a token change we
+# must recreate them ALL to force a fresh JWKS fetch (not just the six that
+# PRESENT a token). A rebuild already stopped every container, so `up` recreates
+# them fresh and no extra action is needed there.
+if [[ "${TOKEN_CHANGED}" -eq 1 && "${DO_BUILD}" -eq 0 ]]; then
+  running_app="$(podman ps -q | wc -l | tr -d ' ')"
+  if [[ "${running_app}" -gt 0 ]]; then
+    log "Token/key changed — recreating ALL running containers so every JWKS validator refetches the new key"
+    podman rm -f $(podman ps -q) >/dev/null 2>&1 || true
+  fi
+fi
+
 log "Bringing the stack up: ${COMPOSE_UP[*]}"
 "${COMPOSE_UP[@]}"
+
+# Belt-and-suspenders: verify the orchestrator's in-container token matches
+# .env.dev-token; if a reused container slipped through (stale token), recreate
+# ALL containers so both the presented token AND every validator's JWKS refresh.
+if [[ -n "${_token_after}" ]]; then
+  sleep 3
+  _in_container="$(podman exec ei-ads-pipeline-orchestrator printenv ORCHESTRATOR_SERVICE_TOKEN 2>/dev/null || true)"
+  if [[ -n "${_in_container}" && "${_in_container}" != "${_token_after}" ]]; then
+    warn "orchestrator holds a stale token; recreating ALL containers to resync token + JWKS"
+    podman rm -f $(podman ps -q) >/dev/null 2>&1 || true
+    "${COMPOSE_UP[@]}"
+  fi
+fi
 
 # --- 6. Readiness waits ------------------------------------------------------
 # 6a. Kafka broker healthy.
