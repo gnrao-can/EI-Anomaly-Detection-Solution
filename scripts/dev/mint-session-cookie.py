@@ -53,9 +53,49 @@ _VALID_ROLES = {"CLAIMANT", "REVIEWER", "INVESTIGATOR", "ADMINISTRATOR"}
 _COOKIE_NAME = "ei_ads_session"
 _DEFAULT_SECRET = "local_dev_portal_session_secret_change_me"
 
+# GCKey signing key published as the running stack's JWKS (written by
+# gen-service-token.py). Used to mint the session's embedded access_token so the
+# portal-backend can forward a REAL, JWKS-validating Bearer to the Claim Intake
+# Service on a UI submission (there is no GCKey IdP locally to issue one).
+_KID = "ei-ads-local-dev"
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_SIGNING_KEY_PATH = os.path.join(_HERE, "jwks", "signing-key.pem")
+
 
 def _b64url_encode(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _mint_access_token(role: str, ttl_seconds: int = 24 * 60 * 60) -> str:
+    """Mint a GCKey-style RS256 Bearer signed by the dev JWKS signing key.
+
+    This is the SAME token scripts/dev/mint-token.py produces: it validates
+    against the JWKS the running services fetch (Req 19.7). Embedding it as the
+    session's ``access_token`` lets the portal-backend forward a real Bearer to
+    the Claim Intake Service on a UI claim submission — nothing is bypassed, we
+    simply supply the token the missing GCKey IdP would have issued.
+    """
+    import time as _time
+    import uuid as _uuid
+
+    from jose import jwt  # requires python-jose (present in .venv-core)
+
+    if not os.path.exists(_SIGNING_KEY_PATH):
+        raise SystemExit(
+            f"error: signing key not found at {os.path.relpath(_SIGNING_KEY_PATH)}.\n"
+            "Run scripts/dev/gen-service-token.py first (it writes the key + JWKS)."
+        )
+    with open(_SIGNING_KEY_PATH, "r", encoding="utf-8") as handle:
+        private_pem = handle.read()
+    now = int(_time.time())
+    claims = {
+        "sub": f"svc-{role.lower()}-{_uuid.uuid4()}",
+        "iat": now,
+        "nbf": now,
+        "exp": now + int(ttl_seconds),
+        "roles": [role],
+    }
+    return jwt.encode(claims, private_pem, algorithm="RS256", headers={"kid": _KID})
 
 
 def sign_session(payload: dict, secret: str) -> str:
@@ -100,6 +140,16 @@ def main() -> None:
         help="Optional GCKey subject (used as investigator_id on dispositions).",
     )
     parser.add_argument(
+        "--with-access-token",
+        action="store_true",
+        help=(
+            "Embed a REAL GCKey Bearer (minted from the dev JWKS signing key, "
+            "role = --role) as the session access_token, so the portal-backend "
+            "can forward it to the Claim Intake Service on a UI claim submission "
+            "(needed to submit a claim through the SPA without a GCKey IdP)."
+        ),
+    )
+    parser.add_argument(
         "--base-url",
         default="http://localhost:8090",
         help="Proxy base URL for the sample curl (default: http://localhost:8090).",
@@ -121,6 +171,10 @@ def main() -> None:
     if args.sin_hash:
         payload["sin_hash"] = args.sin_hash
     payload["subject"] = args.subject or f"dev-{role.lower()}-{uuid.uuid4()}"
+    if args.with_access_token:
+        # Embed a JWKS-valid GCKey Bearer so the portal-backend can forward it to
+        # claim-intake on a UI submission (the missing local IdP would issue it).
+        payload["access_token"] = _mint_access_token(role)
 
     cookie_value = sign_session(payload, args.secret)
 
