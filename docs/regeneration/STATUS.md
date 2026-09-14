@@ -605,9 +605,11 @@ code exchange. There is no local GCKey IdP, so that cookie cannot be obtained th
 The data IS present and correct (verified in Postgres) and the read APIs work given a valid session.
 For local dev, `scripts/dev/mint-session-cookie.py` mints a valid signed session cookie (same
 HMAC-SHA256 over `SESSION_SECRET` the BFF uses) so the dashboard IS browsable without a GCKey IdP —
-see the recipe below. Claim SUBMISSION through the portal still needs a real GCKey access token in
-the session (Bearer-forward to intake); submit directly to `claim-intake` with a minted CLAIMANT
-Bearer instead (as in the recipe).
+see the recipe below. Claim SUBMISSION through the portal needs a GCKey access token in the session
+(the BFF forwards it as a Bearer to intake); with no local IdP, mint the session cookie WITH an
+embedded JWKS-valid Bearer — `scripts/dev/mint-session-cookie.py --role CLAIMANT --with-access-token`
+— so the `/submit` page works end to end (see recipe step 9). Submitting directly to `claim-intake`
+with a minted CLAIMANT Bearer (recipe step 7) remains the non-UI path.
 
 **One-command launcher: `scripts/dev/start-stack.sh`.** This script codifies the whole recipe
 below (machine start → mint dev token → materialise the Drive build context → sequential image
@@ -666,6 +668,20 @@ failures noted in "Task 30 — compose gotchas" below:**
    prints a `Cookie: ei_ads_session=...` header and a ready `curl` for `/portal/investigator/claims`
    via `http://localhost:8090`. In a browser, set that cookie for `localhost:8090` (devtools →
    Application → Cookies) and load the dashboard.
+9. **Submit a claim from the UI (`/submit` page).** The SPA posts `POST /api/v1/claims` to the
+   portal-backend, which forwards the session's GCKey access token as a Bearer to the Claim Intake
+   Service (Req 19.7). There is no GCKey IdP locally, so a plain session cookie has no access token
+   and the submit 401s ("Session has no GCKey access token"). Mint a CLAIMANT session cookie WITH an
+   embedded, JWKS-valid Bearer so the forward succeeds:
+   `.venv-core/bin/python scripts/dev/mint-session-cookie.py --role CLAIMANT --with-access-token`.
+   Set that `ei_ads_session` cookie for `localhost:8090` (devtools → Application → Cookies), open
+   `http://localhost:8090/submit`, and fill the form (Luhn-valid SIN e.g. `193456787`, employer BN
+   `123456789RP0001`, hours/earnings, a past separation date). On success the page shows the
+   Claim_ID. NOTE — the SPA submits only the CLAIM; the pipeline correlates it with a matching ROE
+   (in prod, ROE Web sends it). Until that ROE arrives the claim stays `RECEIVED` (no score). To
+   complete the thread locally, post the matching ROE (same `claimId`) to `roe-adapter:8002/roe/rest`
+   as in step 7, then read `risk_assessments`. Nothing is bypassed: `--with-access-token` supplies
+   the exact Bearer the missing GCKey IdP would have issued, signed by the dev JWKS signing key.
 
 **LLM Service walkthrough (Req 6.6 / 7.8 — the two classification checks).** The `llm-service`
 (8005) is internal-only; drive it (and the two engines that consume it) with a throwaway `curl`
