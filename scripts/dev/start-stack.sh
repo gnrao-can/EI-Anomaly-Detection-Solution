@@ -195,10 +195,15 @@ build_one() {
 }
 
 if [[ "${DO_BUILD}" -eq 1 ]]; then
-  running="$(podman ps -q | wc -l | tr -d ' ')"
-  if [[ "${running}" -gt 0 ]]; then
-    log "Stopping ${running} running container(s) to free the VM for the build"
-    podman stop -t 5 $(podman ps -q) >/dev/null 2>&1 || true
+  existing="$(podman ps -aq | wc -l | tr -d ' ')"
+  if [[ "${existing}" -gt 0 ]]; then
+    # REMOVE (not just stop) all containers before building: frees the VM AND
+    # guarantees the subsequent `up` RECREATES every service from the freshly
+    # built image. Merely stopping would let `up` restart the OLD containers, so
+    # a rebuilt SPA/backend would never be served (the "Demo as button missing"
+    # trap). Named volumes (postgres/kafka/neo4j/etc.) persist, so data survives.
+    log "Removing ${existing} existing container(s) so the rebuild is picked up + to free the VM"
+    podman rm -f $(podman ps -aq) >/dev/null 2>&1 || true
   fi
 
   free_mib="$(podman machine ssh 'free -m' 2>/dev/null | awk '/^Mem:/{print $7}')"
