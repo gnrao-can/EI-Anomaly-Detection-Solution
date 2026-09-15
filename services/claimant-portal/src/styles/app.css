@@ -540,3 +540,183 @@ button:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+
+/* ----------------------------------------------------------------------- */
+/* Investigator detail — three-column layout                               */
+/* (Claim data | AI processing | Detection result)                         */
+/* Modeled on demo/ei-fraud-demo.html. Collapses to a single column on      */
+/* narrow viewports so it stays usable on small screens.                    */
+/* ----------------------------------------------------------------------- */
+
+.investigator-columns {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+@media (max-width: 960px) {
+  .investigator-columns {
+    grid-template-columns: 1fr;
+  }
+}
+
+.investigator-column {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 16px;
+  min-width: 0;
+}
+
+/* Inside a column the claim-summary stacks vertically rather than as a grid. */
+.investigator-column .claim-summary {
+  grid-template-columns: 1fr;
+  margin-bottom: 0;
+}
+
+/* AI-processing engine list. */
+.engines-summary {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  margin: 0 0 12px 0;
+}
+
+.engine-list {
+  list-style: none;
+  margin: 0 0 16px 0;
+  padding: 0;
+}
+
+.engine-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  font-size: 0.85rem;
+}
+
+.engine-item.engine-idle {
+  opacity: 0.6;
+}
+
+.engine-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.engine-dot-active {
+  background: var(--severity-high-accent, #f97316);
+}
+
+.engine-name {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.engine-status {
+  margin-left: auto;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+/* Detection-result score gauge. */
+.score-panel {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.score-circle {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 5px solid var(--panel-border);
+}
+
+.score-circle.score-low {
+  border-color: #059669;
+}
+.score-circle.score-medium {
+  border-color: #d97706;
+}
+.score-circle.score-high {
+  border-color: #ea580c;
+}
+.score-circle.score-critical {
+  border-color: #dc2626;
+}
+
+.score-num {
+  font-size: 1.7rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--text);
+}
+
+.score-cap {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+/* ----------------------------------------------------------------------- */
+/* Fraud-ring network graph                                                */
+/* ----------------------------------------------------------------------- */
+
+.fraud-ring-svg {
+  display: block;
+  max-width: 340px;
+  margin: 0 auto;
+}
+
+.graph-summary {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin: 0 0 8px 0;
+}
+
+.graph-unavailable {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+.graph-legend {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0 0 0;
+  padding: 0;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.graph-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-swatch {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  display: inline-block;
+}

@@ -71,6 +71,18 @@ if _HAS_PYDANTIC_SETTINGS:
         # ── Claim Intake Service (reverse-proxy target) ─────────────
         claim_intake_url: str = "http://localhost:8001"
 
+        # ── Graph Service (fraud-ring network view — Req 5.1/22.2) ──
+        # The investigator detail's fraud-ring graph is built from a LIVE call
+        # to the Graph Service (GET /graph/cohort/{bn} + POST
+        # /graph/community-detect). Port 8006 matches the graph-service
+        # Containerfile. The BFF presents its own internal GCKey service Bearer
+        # (Req 19.7); the view degrades honestly when the service is down.
+        graph_service_url: str = "http://localhost:8006"
+        graph_timeout_seconds: float = 5.0
+        # Internal service Bearer presented to the auth-gated Graph Service
+        # (Req 19.7). Empty in unit tests => no Authorization header.
+        service_token: str = ""
+
         # ── ROE Adapter (DEV-ONLY auto-ROE convenience) ─────────────
         # In production the ROE arrives from ROE Web (the employer), a separate
         # actor from the claimant (design.md "ROE Adapter"). For a smooth LOCAL
@@ -163,6 +175,16 @@ else:  # pragma: no cover - executed only when pydantic-settings is absent
             self.claim_intake_url = os.environ.get(
                 "CLAIM_INTAKE_URL", "http://localhost:8001"
             )
+
+            # Graph Service (fraud-ring network view — see pydantic Settings).
+            self.graph_service_url = os.environ.get(
+                "GRAPH_SERVICE_URL", "http://localhost:8006"
+            )
+            self.graph_timeout_seconds = float(
+                os.environ.get("GRAPH_TIMEOUT_SECONDS", "5.0")
+            )
+            # Internal service Bearer token (Req 19.7); empty in unit tests.
+            self.service_token = os.environ.get("SERVICE_TOKEN", "")
 
             # DEV-ONLY auto-ROE convenience (see the pydantic Settings above).
             self.roe_adapter_url = os.environ.get(

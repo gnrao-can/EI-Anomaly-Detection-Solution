@@ -92,6 +92,35 @@ mocked seams, which caused the prior fragility).
     pipeline-orchestrator. Shared pub/sub for horizontal scaling is future work. Verified
     live: submit → scored → flagged row arrives on the open dashboard with no reload, SIN
     masked. 67 portal unit tests pass (adds `TestScoredConsumer`).
+14. (Investigator fraud-ring graph view) **Network graph on the investigator claim detail,
+    with a three-column layout.** The claim detail is now organised as three columns —
+    **Claim data | AI processing | Detection result** — modelled on `demo/ei-fraud-demo.html`.
+    The AI-processing column lists the six Detection_Engines and which produced Indicators for
+    the claim (derived from the `engine` field already on each Indicator). The detection-result
+    column adds a **fraud-ring network graph**: an employer hub surrounded by the claimant
+    cohort, with community-detected clusters coloured and shared-surname / shared-address ties
+    drawn (Req 5.1 / 5.5). All existing Req 22.2 elements stay (score, Indicators, SHAP chart,
+    LLM explanation, disposition).
+    - **New scope beyond Req 22** (the spec has no investigator graph requirement; Req 22.2 is
+      the surface, Req 5.1/5.5 the data). Confirmed with the project owner before building.
+    - **New portal-backend → graph-service seam.** There is NO persisted node/edge store, so
+      `GET /portal/investigator/claims/{id}/graph` composes the graph LIVE: resolve the claim's
+      `employer_bn`, call `GET /graph/cohort/{bn}` + `POST /graph/community-detect`
+      (`services/portal-backend/graph_client.py`, `PortalGraphServiceClient`), then `build_graph`
+      into `{nodes, edges, cluster_count, ...}`. Presents the portal's own GCKey service Bearer
+      (Req 19.7); INVESTIGATOR / ADMINISTRATOR only, REVIEWER 403 (Req 22.6). Node ids are
+      pseudonymous (sin_hash) — no raw PII.
+    - **Honest degradation (grounding rule 1).** When the claim has no employer, the
+      graph-service is down, or the cohort is empty, the endpoint returns 200 with
+      `available:false` + a `reason` and an empty graph — never a fabricated ring. The SPA shows
+      a plain "no network data" message. The graph is `role="img"` with a bilingual summary and
+      a visually-hidden data table so cluster membership is not conveyed by colour alone (WCAG).
+    - **Verified.** 80 portal unit tests pass (adds `TestBuildGraph` + `TestInvestigatorGraph`
+      Endpoint); SPA `tsc` clean; and a REAL-transport integration test
+      (`tests/integration/test_fraud_ring_graph_seam.py`) runs the actual graph-service on a
+      loopback socket with real JWKS auth, seeds a cohort via real `POST /graph/construct`, and
+      asserts the portal composes the hub + cohort + cluster edges over real HTTP — plus the
+      honest-degrade path when the service is stopped.
 
 ## Key finding (scope correction)
 The prior "systemic integration failure" was over-stated. The real pipeline-core defect

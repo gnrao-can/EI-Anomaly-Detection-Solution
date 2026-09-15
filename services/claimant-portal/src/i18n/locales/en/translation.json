@@ -115,6 +115,53 @@
         "FALSE_POSITIVE": "False positive",
         "NEEDS_FURTHER_REVIEW": "Needs further review"
       }
+    },
+    "columns": {
+      "claimData": "Claim data",
+      "aiProcessing": "AI processing",
+      "detectionResult": "Detection result"
+    },
+    "processing": {
+      "enginesTitle": "Detection engines",
+      "engineRan": "produced indicators",
+      "engineNoFinding": "no indicators",
+      "summary": "{{count}} of {{total}} engines produced indicators for this claim."
+    },
+    "engine": {
+      "REPETITIVE_PATTERN": "Repetitive pattern",
+      "GEOGRAPHIC_ANOMALY": "Geographic anomaly",
+      "FRAUD_RING": "Fraud ring",
+      "HISTORY_INCONSISTENCY": "History inconsistency",
+      "DOCUMENT_FORGERY": "Document forgery",
+      "REGIONAL_ANALYSIS": "Regional analysis"
+    },
+    "graph": {
+      "title": "Fraud ring network",
+      "description": "Network of the {{cohort}} claimants linked to this employer. {{clusters}} connected cluster(s) detected.",
+      "loadError": "The fraud-ring network could not be loaded. {{message}}",
+      "employerNode": "EMPLOYER",
+      "unavailable": {
+        "NO_EMPLOYER": "No employer is associated with this claim, so no network can be shown.",
+        "GRAPH_SERVICE_UNAVAILABLE": "The network data is unavailable — the graph service could not be reached.",
+        "EMPTY_COHORT": "No related claimants were found for this employer, so there is no network to show."
+      },
+      "legend": {
+        "employer": "Employer",
+        "cluster": "Cluster member",
+        "unclustered": "Unrelated claimant"
+      },
+      "nodeType": {
+        "EMPLOYER": "Employer",
+        "CLAIMANT": "Claimant"
+      },
+      "table": {
+        "node": "Node",
+        "type": "Type",
+        "cluster": "Cluster",
+        "hub": "Employer hub",
+        "inCluster": "In cluster {{community}}",
+        "notInCluster": "Not in a cluster"
+      }
     }
   },
   "home": {

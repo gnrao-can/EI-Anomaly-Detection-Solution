@@ -51,13 +51,25 @@ from fastapi.testclient import TestClient  # noqa: E402
 os.environ.setdefault("SESSION_SECRET", "test_portal_secret")
 os.environ.setdefault("CLAIM_INTAKE_URL", "http://claim-intake.test")
 
-_SIBLINGS = ["config", "auth", "repository", "sse", "consumer", "gckey", "main"]
+_SIBLINGS = [
+    "config",
+    "auth",
+    "repository",
+    "sse",
+    "consumer",
+    "graph_client",
+    "gckey",
+    "main",
+]
 
 _config = load_service_module("portal-backend", "config", siblings=_SIBLINGS)
 _auth = load_service_module("portal-backend", "auth", siblings=_SIBLINGS)
 _repository = load_service_module("portal-backend", "repository", siblings=_SIBLINGS)
 _sse = load_service_module("portal-backend", "sse", siblings=_SIBLINGS)
 _consumer = load_service_module("portal-backend", "consumer", siblings=_SIBLINGS)
+_graph_client = load_service_module(
+    "portal-backend", "graph_client", siblings=_SIBLINGS
+)
 _gckey = load_service_module("portal-backend", "gckey", siblings=_SIBLINGS)
 _main = load_service_module("portal-backend", "main", siblings=_SIBLINGS)
 
@@ -1172,3 +1184,233 @@ class TestScoredConsumer:
         assert _consumer.extract_scored_event(json.dumps(ev)) == ev
         assert _consumer.extract_scored_event(ev) == ev
         assert _consumer.extract_scored_event(b"garbage") == {}
+
+
+class _FakeGraphClient:
+    """Fake PortalGraphServiceClient for the graph-endpoint tests.
+
+    Returns preset cohort members + a community partition, or an UNAVAILABLE
+    status to exercise the honest-degrade path — no live Graph Service.
+    """
+
+    GraphCallStatus = _graph_client.GraphCallStatus
+    CohortFetchResult = _graph_client.CohortFetchResult
+    CommunityResult = _graph_client.CommunityResult
+
+    def __init__(self, *, members=None, partition=None, available=True):
+        self._members = members or []
+        self._partition = partition or {}
+        self._available = available
+
+    async def fetch_cohort(self, employer_bn):
+        status = (
+            self.GraphCallStatus.OK if self._available else self.GraphCallStatus.UNAVAILABLE
+        )
+        return self.CohortFetchResult(status=status, members=self._members)
+
+    async def community_detect(self, employer_bn, *, seed=42):
+        status = (
+            self.GraphCallStatus.OK if self._available else self.GraphCallStatus.UNAVAILABLE
+        )
+        return self.CommunityResult(
+            status=status,
+            partition=self._partition,
+            num_communities=len(set(self._partition.values())),
+        )
+
+
+class TestBuildGraph:
+    """Pure fraud-ring graph composition (no I/O). Grounded on Req 5.1/5.5."""
+
+    build_graph = staticmethod(_graph_client.build_graph)
+    GraphCallStatus = _graph_client.GraphCallStatus
+
+    def _members(self):
+        # Two claimants share a surname hash AND postal FSA (a cluster); a third
+        # is unrelated. All employed by the same employer.
+        return [
+            {"sin_hash": "h1", "surname_hash": "SMITH", "postal_fsa": "K1A",
+             "insurable_hours": 421, "separation_date": "2024-03-01", "claim_id": "cl1"},
+            {"sin_hash": "h2", "surname_hash": "SMITH", "postal_fsa": "K1A",
+             "insurable_hours": 423, "separation_date": "2024-03-01", "claim_id": "cl2"},
+            {"sin_hash": "h3", "surname_hash": "JONES", "postal_fsa": "M5V",
+             "insurable_hours": 900, "separation_date": "2024-02-10", "claim_id": "cl3"},
+        ]
+
+    def test_composes_hub_and_claimant_nodes_with_employed_by_edges(self):
+        graph = self.build_graph(
+            employer_bn="123RT0001",
+            cohort_members=self._members(),
+            partition={"h1": 0, "h2": 0, "h3": 1},
+            cohort_status=self.GraphCallStatus.OK,
+        )
+        assert graph["available"] is True
+        assert graph["cohort_size"] == 3
+        # 1 employer hub + 3 claimants.
+        assert len(graph["nodes"]) == 4
+        hub = [n for n in graph["nodes"] if n["type"] == "EMPLOYER"]
+        assert len(hub) == 1 and hub[0]["id"] == "123RT0001"
+        # Every claimant has an EMPLOYED_BY edge to the hub.
+        employed_by = [e for e in graph["edges"] if e["kind"] == "EMPLOYED_BY"]
+        assert len(employed_by) == 3
+        assert all(e["target"] == "123RT0001" for e in employed_by)
+
+    def test_cluster_members_flagged_singleton_not(self):
+        graph = self.build_graph(
+            employer_bn="123RT0001",
+            cohort_members=self._members(),
+            partition={"h1": 0, "h2": 0, "h3": 1},
+            cohort_status=self.GraphCallStatus.OK,
+        )
+        by_id = {n["id"]: n for n in graph["nodes"] if n["type"] == "CLAIMANT"}
+        # h1/h2 share community 0 (size 2) -> flagged; h3 is a singleton -> not.
+        assert by_id["h1"]["flagged"] is True
+        assert by_id["h2"]["flagged"] is True
+        assert by_id["h3"]["flagged"] is False
+        assert graph["cluster_count"] == 1
+
+    def test_shared_attribute_edges_derived(self):
+        graph = self.build_graph(
+            employer_bn="123RT0001",
+            cohort_members=self._members(),
+            partition={"h1": 0, "h2": 0, "h3": 1},
+            cohort_status=self.GraphCallStatus.OK,
+        )
+        surname = {(e["source"], e["target"]) for e in graph["edges"]
+                   if e["kind"] == "SHARED_SURNAME"}
+        address = {(e["source"], e["target"]) for e in graph["edges"]
+                   if e["kind"] == "SHARED_ADDRESS"}
+        # h1<->h2 share both surname and FSA; h3 shares neither.
+        assert surname == {("h1", "h2")}
+        assert address == {("h1", "h2")}
+
+    def test_no_employer_is_unavailable(self):
+        graph = self.build_graph(
+            employer_bn=None,
+            cohort_members=[],
+            partition={},
+            cohort_status=self.GraphCallStatus.UNAVAILABLE,
+        )
+        assert graph["available"] is False
+        assert graph["reason"] == "NO_EMPLOYER"
+        assert graph["nodes"] == [] and graph["edges"] == []
+
+    def test_graph_service_unavailable_is_honest(self):
+        graph = self.build_graph(
+            employer_bn="123RT0001",
+            cohort_members=[],
+            partition={},
+            cohort_status=self.GraphCallStatus.UNAVAILABLE,
+        )
+        assert graph["available"] is False
+        assert graph["reason"] == "GRAPH_SERVICE_UNAVAILABLE"
+        assert graph["nodes"] == []
+
+    def test_empty_cohort_is_honest(self):
+        graph = self.build_graph(
+            employer_bn="123RT0001",
+            cohort_members=[],
+            partition={},
+            cohort_status=self.GraphCallStatus.OK,
+        )
+        assert graph["available"] is False
+        assert graph["reason"] == "EMPTY_COHORT"
+
+    def test_claimant_labels_are_pseudonymous(self):
+        graph = self.build_graph(
+            employer_bn="123RT0001",
+            cohort_members=self._members(),
+            partition={},
+            cohort_status=self.GraphCallStatus.OK,
+        )
+        # Labels never leak the sin_hash; they are a stable derived handle.
+        for n in graph["nodes"]:
+            if n["type"] == "CLAIMANT":
+                assert n["label"].startswith("Claimant ")
+                assert n["id"] not in n["label"]
+
+
+class TestInvestigatorGraphEndpoint:
+    """GET /portal/investigator/claims/{claim_id}/graph (Req 22.2, 22.6)."""
+
+    def _seed(self, repo, claim_id="c-1", employer_bn="123RT0001"):
+        _seed_flagged(repo, claim_id, employer_bn=employer_bn)
+
+    def test_composes_graph_from_graph_service(self, client, repo):
+        self._seed(repo)
+        app.state.graph_client = _FakeGraphClient(
+            members=[
+                {"sin_hash": "h1", "surname_hash": "S", "postal_fsa": "K1A"},
+                {"sin_hash": "h2", "surname_hash": "S", "postal_fsa": "K1A"},
+            ],
+            partition={"h1": 0, "h2": 0},
+        )
+        try:
+            resp = client.get(
+                "/portal/investigator/claims/c-1/graph",
+                cookies=_session_cookie("INVESTIGATOR"),
+            )
+        finally:
+            app.state.graph_client = None
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["available"] is True
+        assert body["employer_bn"] == "123RT0001"
+        assert body["cohort_size"] == 2
+        assert body["cluster_count"] == 1
+        assert len(body["nodes"]) == 3  # hub + 2 claimants
+
+    def test_administrator_allowed(self, client, repo):
+        self._seed(repo)
+        app.state.graph_client = _FakeGraphClient(
+            members=[{"sin_hash": "h1"}], partition={}
+        )
+        try:
+            resp = client.get(
+                "/portal/investigator/claims/c-1/graph",
+                cookies=_session_cookie("ADMINISTRATOR"),
+            )
+        finally:
+            app.state.graph_client = None
+        assert resp.status_code == 200
+
+    def test_reviewer_denied_403(self, client, repo):
+        # Req 22.6: REVIEWER may not access flagged claim details (graph included).
+        self._seed(repo)
+        resp = client.get(
+            "/portal/investigator/claims/c-1/graph",
+            cookies=_session_cookie("REVIEWER", "x"),
+        )
+        assert resp.status_code == 403
+
+    def test_claimant_denied_403(self, client, repo):
+        self._seed(repo)
+        resp = client.get(
+            "/portal/investigator/claims/c-1/graph",
+            cookies=_session_cookie("CLAIMANT", "x"),
+        )
+        assert resp.status_code == 403
+
+    def test_absent_claim_404(self, client):
+        resp = client.get(
+            "/portal/investigator/claims/nope/graph",
+            cookies=_session_cookie("INVESTIGATOR"),
+        )
+        assert resp.status_code == 404
+
+    def test_graph_service_down_degrades_gracefully(self, client, repo):
+        self._seed(repo)
+        app.state.graph_client = _FakeGraphClient(available=False)
+        try:
+            resp = client.get(
+                "/portal/investigator/claims/c-1/graph",
+                cookies=_session_cookie("INVESTIGATOR"),
+            )
+        finally:
+            app.state.graph_client = None
+        # Never 500: an honest available:false payload instead.
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["available"] is False
+        assert body["reason"] == "GRAPH_SERVICE_UNAVAILABLE"
+        assert body["nodes"] == []

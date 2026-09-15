@@ -13,6 +13,7 @@ import {
 import IndicatorList from './IndicatorList';
 import ShapAttributionChart from './ShapAttributionChart';
 import DispositionForm from './DispositionForm';
+import FraudRingGraph from './FraudRingGraph';
 
 /**
  * Investigator-facing per-claim detail view (Req 22.2, 22.3, 22.4, 22.5).
@@ -133,6 +134,21 @@ export default function InvestigatorClaimDetail({
   );
 }
 
+/**
+ * The six Detection_Engines that run concurrently on every claim (Req 2.1).
+ * The AI-processing column shows which of them produced Indicators for THIS
+ * claim, derived from the `engine` field already on each Indicator — so the
+ * display reflects what the pipeline actually did rather than a fixed list.
+ */
+const ALL_ENGINES = [
+  'REPETITIVE_PATTERN',
+  'GEOGRAPHIC_ANOMALY',
+  'FRAUD_RING',
+  'HISTORY_INCONSISTENCY',
+  'DOCUMENT_FORGERY',
+  'REGIONAL_ANALYSIS',
+] as const;
+
 function ClaimDetailBody({
   claim,
   language,
@@ -149,64 +165,134 @@ function ClaimDetailBody({
     language,
   );
 
+  // Which engines produced at least one Indicator for this claim.
+  const enginesWithFindings = new Set(
+    claim.indicators.map((i) => i.engine).filter(Boolean),
+  );
+
   return (
-    <>
-      <dl className="claim-summary">
-        <div>
-          <dt>{t('investigator.detail.claimId')}</dt>
-          <dd>{claim.claimId}</dd>
-        </div>
-        <div>
-          <dt>{t('investigator.detail.riskScore')}</dt>
-          <dd>{claim.riskScore}</dd>
-        </div>
-        <div>
-          <dt>{t('investigator.detail.riskDecision')}</dt>
-          <dd>
-            <span
-              className={`decision-badge decision-${claim.riskDecision.toLowerCase()}`}
-            >
-              {t(`investigator.decision.${claim.riskDecision}`)}
-            </span>
-          </dd>
-        </div>
-        <div>
-          <dt>{t('investigator.detail.employerBn')}</dt>
-          <dd>{claim.employerBn}</dd>
-        </div>
-        {claim.claimantName != null && (
+    <div className="investigator-columns">
+      {/* ── Column 1: Claim data ─────────────────────────────── */}
+      <div className="investigator-column" aria-labelledby="col-claim-data">
+        <h3 id="col-claim-data" className="section-title">
+          {t('investigator.columns.claimData')}
+        </h3>
+        <dl className="claim-summary">
           <div>
-            <dt>{t('investigator.detail.claimant')}</dt>
+            <dt>{t('investigator.detail.claimId')}</dt>
+            <dd>{claim.claimId}</dd>
+          </div>
+          <div>
+            <dt>{t('investigator.detail.employerBn')}</dt>
+            <dd>{claim.employerBn}</dd>
+          </div>
+          {claim.claimantName != null && (
+            <div>
+              <dt>{t('investigator.detail.claimant')}</dt>
+              <dd>
+                {claim.claimantName}
+                {claim.claimantSin ? ` · ${claim.claimantSin}` : ''}
+              </dd>
+            </div>
+          )}
+          <div>
+            <dt>{t('investigator.detail.riskDecision')}</dt>
             <dd>
-              {claim.claimantName}
-              {claim.claimantSin ? ` · ${claim.claimantSin}` : ''}
+              <span
+                className={`decision-badge decision-${claim.riskDecision.toLowerCase()}`}
+              >
+                {t(`investigator.decision.${claim.riskDecision}`)}
+              </span>
             </dd>
           </div>
-        )}
-      </dl>
+        </dl>
+      </div>
 
-      <section aria-labelledby="explanation-heading" className="panel">
-        <h3 id="explanation-heading" className="section-title">
-          {t('investigator.detail.explanation')}
+      {/* ── Column 2: AI processing ──────────────────────────── */}
+      <div className="investigator-column" aria-labelledby="col-ai-processing">
+        <h3 id="col-ai-processing" className="section-title">
+          {t('investigator.columns.aiProcessing')}
         </h3>
-        <p>
-          {explanation ?? t('investigator.detail.explanationPending')}
+        <p className="engines-summary">
+          {t('investigator.processing.summary', {
+            count: enginesWithFindings.size,
+            total: ALL_ENGINES.length,
+          })}
         </p>
-      </section>
+        <ul className="engine-list">
+          {ALL_ENGINES.map((engine) => {
+            const ran = enginesWithFindings.has(engine);
+            return (
+              <li
+                key={engine}
+                className={`engine-item ${ran ? 'engine-ran' : 'engine-idle'}`}
+              >
+                <span
+                  className={`engine-dot ${ran ? 'engine-dot-active' : ''}`}
+                  aria-hidden="true"
+                />
+                <span className="engine-name">
+                  {t(`investigator.engine.${engine}`)}
+                </span>
+                <span className="engine-status">
+                  {ran
+                    ? t('investigator.processing.engineRan')
+                    : t('investigator.processing.engineNoFinding')}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
 
-      <IndicatorList indicators={claim.indicators} />
+        <section aria-labelledby="explanation-heading" className="panel">
+          <h4 id="explanation-heading" className="section-title">
+            {t('investigator.detail.explanation')}
+          </h4>
+          <p>{explanation ?? t('investigator.detail.explanationPending')}</p>
+        </section>
+      </div>
 
-      <ShapAttributionChart
-        attributions={claim.shapAttributions}
-        indicators={claim.indicators}
-      />
+      {/* ── Column 3: Detection result ───────────────────────── */}
+      <div className="investigator-column" aria-labelledby="col-detection-result">
+        <h3 id="col-detection-result" className="section-title">
+          {t('investigator.columns.detectionResult')}
+        </h3>
 
-      <DispositionForm
-        claimId={claim.claimId}
-        initialDisposition={claim.disposition ?? null}
-        initialCaseNotes={claim.caseNotes ?? null}
-        onSubmitted={onDispositionSubmitted}
-      />
-    </>
+        <div className="score-panel">
+          <div
+            className={`score-circle score-${scoreBand(claim.riskScore)}`}
+            role="img"
+            aria-label={`${t('investigator.detail.riskScore')}: ${claim.riskScore}`}
+          >
+            <span className="score-num">{claim.riskScore}</span>
+            <span className="score-cap">{t('investigator.detail.riskScore')}</span>
+          </div>
+        </div>
+
+        <IndicatorList indicators={claim.indicators} />
+
+        <ShapAttributionChart
+          attributions={claim.shapAttributions}
+          indicators={claim.indicators}
+        />
+
+        <FraudRingGraph claimId={claim.claimId} />
+
+        <DispositionForm
+          claimId={claim.claimId}
+          initialDisposition={claim.disposition ?? null}
+          initialCaseNotes={claim.caseNotes ?? null}
+          onSubmitted={onDispositionSubmitted}
+        />
+      </div>
+    </div>
   );
+}
+
+/** Map a 0–100 risk score to a gauge band (matches the demo's colour bands). */
+function scoreBand(score: number): 'low' | 'medium' | 'high' | 'critical' {
+  if (score <= 29) return 'low';
+  if (score <= 69) return 'medium';
+  if (score <= 84) return 'high';
+  return 'critical';
 }

@@ -97,8 +97,11 @@ concurrently, an ensemble model scores it, and the result is stored.
 6. Click **Dashboard** in the nav and leave it open.
 7. Your claim **appears in the review queue live** (within a few seconds of
    scoring — no reload needed) with its **risk score and decision**. Click it to
-   see the per-engine indicators, the SHAP contribution chart, and the bilingual
-   explanation, and to record a disposition.
+   open the case, laid out in three columns — **Claim data**, **AI processing**
+   (which of the six detection engines fired), and **Detection result** (risk
+   score, indicators with severity badges, the SHAP contribution chart, the
+   **fraud-ring network graph**, the bilingual explanation, and the disposition
+   form).
 
 > Tip: you can even open the Dashboard as Investigator FIRST (in one tab),
 > submit a claim as Claimant (in another), and watch the row arrive on the
@@ -122,6 +125,12 @@ reviews**, all from the browser.
   if you submit within the first few seconds after start-up, before the ML
   engines finish warming; **submit one more claim** and it will score higher and
   appear.
+- **The fraud-ring network graph is real, not a mock.** On a flagged claim's
+  detail, the "Detection result" column draws the employer and the connected
+  claimant cohort (shared address / surname clusters) from a live query to the
+  graph service. If the graph service has no cohort for that employer (or is not
+  running), the panel says **"no network data"** rather than inventing a network —
+  what you see is always backed by real data.
 - **Personas are separate on purpose.** A claimant sees only their own claim; an
   investigator sees the flagged queue with privacy protections. Switch between
   them with the "Demo as" buttons — that's expected, not a limitation.

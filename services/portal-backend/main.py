@@ -74,6 +74,11 @@ try:  # sibling modules imported by bare name in the service directory
     )
     from sse import ClaimEventBroadcaster, format_sse, HEARTBEAT_COMMENT  # type: ignore
     from consumer import PortalScoredConsumer  # type: ignore
+    from graph_client import (  # type: ignore
+        GraphCallStatus,
+        PortalGraphServiceClient,
+        build_graph,
+    )
     import gckey  # type: ignore
 except ImportError:  # pragma: no cover - when imported as a package
     from .config import get_settings  # type: ignore
@@ -95,6 +100,11 @@ except ImportError:  # pragma: no cover - when imported as a package
     )
     from .sse import ClaimEventBroadcaster, format_sse, HEARTBEAT_COMMENT  # type: ignore
     from .consumer import PortalScoredConsumer  # type: ignore
+    from .graph_client import (  # type: ignore
+        GraphCallStatus,
+        PortalGraphServiceClient,
+        build_graph,
+    )
     from . import gckey  # type: ignore
 
 
@@ -876,6 +886,79 @@ async def get_investigator_claim(
         raise HTTPException(status_code=404, detail="Claim not found.")
     masked = mask_detail(detail, unmasked=principal.can_view_unmasked_pii())
     return JSONResponse(content=masked)
+
+
+def _build_graph_client() -> Optional["PortalGraphServiceClient"]:
+    """Construct the Graph Service client, or ``None`` when httpx is absent.
+
+    A test may inject an ``httpx.MockTransport`` (or a fake client) via
+    ``app.state.graph_transport`` / ``app.state.graph_client`` so the seam can be
+    exercised without a live Graph Service. In production a fresh
+    ``httpx.AsyncClient`` is created per request (cheap; the call is bounded by
+    the graph timeout).
+    """
+    injected = getattr(app.state, "graph_client", None)
+    if injected is not None:
+        return injected
+    if not _HAS_HTTPX:
+        return None
+    settings = app.state.settings if hasattr(app.state, "settings") else get_settings()
+    transport = getattr(app.state, "graph_transport", None)
+    client_kwargs: dict[str, Any] = {}
+    if transport is not None:
+        client_kwargs["transport"] = transport
+    http_client = httpx.AsyncClient(**client_kwargs)
+    return PortalGraphServiceClient(
+        settings.graph_service_url,
+        http_client,
+        timeout_seconds=getattr(settings, "graph_timeout_seconds", 5.0),
+        bearer_token=(getattr(settings, "service_token", "") or None),
+    )
+
+
+@app.get("/portal/investigator/claims/{claim_id}/graph")
+async def get_investigator_claim_graph(
+    claim_id: str,
+    principal: Principal = Depends(
+        require_roles(Role.INVESTIGATOR, Role.ADMINISTRATOR)
+    ),
+) -> JSONResponse:
+    """Return the fraud-ring network graph for a flagged claim (Req 22.2).
+
+    Composes an employer-hub + claimant-cohort network from a LIVE Graph Service
+    read (the Req 5.1 bipartite graph + Req 5.5 community clustering). There is
+    no persisted node/edge store, so this is fetched on demand and degrades
+    HONESTLY: when the claim is unknown -> 404; when it has no employer BN or the
+    Graph Service is down/empty -> 200 with ``available:false`` + a ``reason``
+    and an empty graph (never a fabricated network, grounding rule 1).
+
+    Req 22.6: INVESTIGATOR / ADMINISTRATOR only (REVIEWER is denied 403). Node
+    identifiers are already pseudonymous (sin_hash), so no raw PII is emitted.
+    """
+    detail = await _repository().get_claim_detail(claim_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Claim not found.")
+
+    employer_bn = detail.get("employer_bn")
+    client = _build_graph_client()
+    if client is None or not employer_bn:
+        graph = build_graph(
+            employer_bn=employer_bn or None,
+            cohort_members=[],
+            partition={},
+            cohort_status=GraphCallStatus.UNAVAILABLE,
+        )
+        return JSONResponse(content=graph)
+
+    cohort = await client.fetch_cohort(employer_bn)
+    community = await client.community_detect(employer_bn)
+    graph = build_graph(
+        employer_bn=employer_bn,
+        cohort_members=cohort.members,
+        partition=community.partition,
+        cohort_status=cohort.status,
+    )
+    return JSONResponse(content=graph)
 
 
 # ---------------------------------------------------------------------------

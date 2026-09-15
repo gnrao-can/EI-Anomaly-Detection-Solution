@@ -115,6 +115,53 @@
         "FALSE_POSITIVE": "Faux positif",
         "NEEDS_FURTHER_REVIEW": "Examen supplémentaire requis"
       }
+    },
+    "columns": {
+      "claimData": "Données de la demande",
+      "aiProcessing": "Traitement par l'IA",
+      "detectionResult": "Résultat de détection"
+    },
+    "processing": {
+      "enginesTitle": "Moteurs de détection",
+      "engineRan": "a produit des indicateurs",
+      "engineNoFinding": "aucun indicateur",
+      "summary": "{{count}} moteur(s) sur {{total}} ont produit des indicateurs pour cette demande."
+    },
+    "engine": {
+      "REPETITIVE_PATTERN": "Répétition de schémas",
+      "GEOGRAPHIC_ANOMALY": "Anomalie géographique",
+      "FRAUD_RING": "Fraude organisée",
+      "HISTORY_INCONSISTENCY": "Incohérence d'historique",
+      "DOCUMENT_FORGERY": "Falsification de documents",
+      "REGIONAL_ANALYSIS": "Analyse régionale"
+    },
+    "graph": {
+      "title": "Réseau de fraude organisée",
+      "description": "Réseau des {{cohort}} prestataires liés à cet employeur. {{clusters}} grappe(s) connectée(s) détectée(s).",
+      "loadError": "Le réseau de fraude n'a pas pu être chargé. {{message}}",
+      "employerNode": "EMPLOYEUR",
+      "unavailable": {
+        "NO_EMPLOYER": "Aucun employeur n'est associé à cette demande; aucun réseau ne peut être affiché.",
+        "GRAPH_SERVICE_UNAVAILABLE": "Les données du réseau sont indisponibles — le service de graphe est inaccessible.",
+        "EMPTY_COHORT": "Aucun prestataire lié n'a été trouvé pour cet employeur; il n'y a aucun réseau à afficher."
+      },
+      "legend": {
+        "employer": "Employeur",
+        "cluster": "Membre d'une grappe",
+        "unclustered": "Prestataire non lié"
+      },
+      "nodeType": {
+        "EMPLOYER": "Employeur",
+        "CLAIMANT": "Prestataire"
+      },
+      "table": {
+        "node": "Nœud",
+        "type": "Type",
+        "cluster": "Grappe",
+        "hub": "Pôle employeur",
+        "inCluster": "Dans la grappe {{community}}",
+        "notInCluster": "Hors grappe"
+      }
     }
   },
   "home": {
