@@ -51,12 +51,13 @@ from fastapi.testclient import TestClient  # noqa: E402
 os.environ.setdefault("SESSION_SECRET", "test_portal_secret")
 os.environ.setdefault("CLAIM_INTAKE_URL", "http://claim-intake.test")
 
-_SIBLINGS = ["config", "auth", "repository", "sse", "gckey", "main"]
+_SIBLINGS = ["config", "auth", "repository", "sse", "consumer", "gckey", "main"]
 
 _config = load_service_module("portal-backend", "config", siblings=_SIBLINGS)
 _auth = load_service_module("portal-backend", "auth", siblings=_SIBLINGS)
 _repository = load_service_module("portal-backend", "repository", siblings=_SIBLINGS)
 _sse = load_service_module("portal-backend", "sse", siblings=_SIBLINGS)
+_consumer = load_service_module("portal-backend", "consumer", siblings=_SIBLINGS)
 _gckey = load_service_module("portal-backend", "gckey", siblings=_SIBLINGS)
 _main = load_service_module("portal-backend", "main", siblings=_SIBLINGS)
 
@@ -1056,3 +1057,118 @@ class TestDevLogin:
             "/auth/dev/login", params={"role": "WIZARD"}, follow_redirects=False
         )
         assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# claim.scored -> SSE broadcaster consumer (Req 22.1 live dashboard updates)
+# ---------------------------------------------------------------------------
+
+
+class TestScoredConsumer:
+    """The PortalScoredConsumer pushes newly-scored FLAGGED claims to the SSE
+    broadcaster so open dashboards update live (no manual reload). AUTO_APPROVE
+    and INDETERMINATE decisions are NOT surfaced in the investigator queue."""
+
+    import asyncio as _asyncio
+
+    PortalScoredConsumer = _consumer.PortalScoredConsumer
+    ClaimEventBroadcaster = _sse.ClaimEventBroadcaster
+
+    def _consumer_for(self, repo, broadcaster):
+        return self.PortalScoredConsumer(
+            broadcaster,
+            lambda: repo,
+            # Row-read is instant against the fake; the consumer never opens a
+            # real Kafka connection in these tests (we call _handle directly).
+        )
+
+    def _scored_event(self, claim_id, decision):
+        return {
+            "event_type": "claim.scored",
+            "claim_id": claim_id,
+            "risk_score": 88,
+            "risk_decision": decision,
+            "assessment": {},
+            "scored_at": "2024-01-02T00:00:00+00:00",
+        }
+
+    def test_flagged_claim_is_published_to_subscribers(self):
+        async def run():
+            repo = FakePortalRepository()
+            _seed_flagged(repo, "c-live", risk_decision="INVESTIGATE", risk_score=88)
+            broadcaster = self.ClaimEventBroadcaster()
+            queue = await broadcaster.subscribe()
+            consumer = self._consumer_for(repo, broadcaster)
+
+            # A raw JSON bytes frame, as aiokafka would deliver it.
+            await consumer._handle(
+                json.dumps(self._scored_event("c-live", "INVESTIGATE")).encode()
+            )
+
+            # The subscriber received the UNMASKED flagged row for that claim.
+            claim = await self._asyncio.wait_for(queue.get(), timeout=1.0)
+            assert claim["claim_id"] == "c-live"
+            assert claim["risk_decision"] == "INVESTIGATE"
+            assert claim["risk_score"] == 88
+            assert claim["employer_bn"]  # unmasked row carries employer_bn
+
+        self._asyncio.run(run())
+
+    def test_flag_for_review_is_published(self):
+        async def run():
+            repo = FakePortalRepository()
+            _seed_flagged(repo, "c-flag", risk_decision="FLAG_FOR_REVIEW", risk_score=44)
+            broadcaster = self.ClaimEventBroadcaster()
+            queue = await broadcaster.subscribe()
+            consumer = self._consumer_for(repo, broadcaster)
+            await consumer._handle(self._scored_event("c-flag", "FLAG_FOR_REVIEW"))
+            claim = await self._asyncio.wait_for(queue.get(), timeout=1.0)
+            assert claim["claim_id"] == "c-flag"
+
+        self._asyncio.run(run())
+
+    def test_auto_approve_is_not_published(self):
+        async def run():
+            repo = FakePortalRepository()
+            repo.add_claim("c-ok", risk_decision="AUTO_APPROVE", risk_score=10)
+            broadcaster = self.ClaimEventBroadcaster()
+            queue = await broadcaster.subscribe()
+            consumer = self._consumer_for(repo, broadcaster)
+            await consumer._handle(self._scored_event("c-ok", "AUTO_APPROVE"))
+            # Nothing is pushed for a non-flagged decision.
+            with pytest.raises(self._asyncio.TimeoutError):
+                await self._asyncio.wait_for(queue.get(), timeout=0.2)
+
+        self._asyncio.run(run())
+
+    def test_indeterminate_is_not_published(self):
+        async def run():
+            repo = FakePortalRepository()
+            repo.add_claim("c-ind", risk_decision="INDETERMINATE", risk_score=0)
+            broadcaster = self.ClaimEventBroadcaster()
+            queue = await broadcaster.subscribe()
+            consumer = self._consumer_for(repo, broadcaster)
+            await consumer._handle(self._scored_event("c-ind", "INDETERMINATE"))
+            with pytest.raises(self._asyncio.TimeoutError):
+                await self._asyncio.wait_for(queue.get(), timeout=0.2)
+
+        self._asyncio.run(run())
+
+    def test_malformed_frame_is_ignored(self):
+        async def run():
+            repo = FakePortalRepository()
+            broadcaster = self.ClaimEventBroadcaster()
+            queue = await broadcaster.subscribe()
+            consumer = self._consumer_for(repo, broadcaster)
+            await consumer._handle(b"not json")  # must not raise
+            with pytest.raises(self._asyncio.TimeoutError):
+                await self._asyncio.wait_for(queue.get(), timeout=0.2)
+
+        self._asyncio.run(run())
+
+    def test_extract_scored_event_parses_bytes_str_dict(self):
+        ev = {"event_type": "claim.scored", "claim_id": "x", "risk_decision": "INVESTIGATE"}
+        assert _consumer.extract_scored_event(json.dumps(ev).encode()) == ev
+        assert _consumer.extract_scored_event(json.dumps(ev)) == ev
+        assert _consumer.extract_scored_event(ev) == ev
+        assert _consumer.extract_scored_event(b"garbage") == {}

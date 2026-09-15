@@ -168,6 +168,27 @@ WHERE ra.risk_decision = ANY($1::text[])
 ORDER BY ra.risk_score DESC, c.received_at DESC
 """
 
+# Single flagged claim by id (same shape/columns as _FLAGGED_QUEUE_SQL). Used by
+# the claim.scored SSE consumer to fetch the row it should push live (Req 22.1).
+_FLAGGED_ONE_SQL = """
+SELECT
+    c.claim_id,
+    c.employer_bn,
+    c.received_at,
+    c.sin_hash,
+    ra.risk_score,
+    ra.risk_decision
+FROM claims c
+JOIN LATERAL (
+    SELECT risk_score, risk_decision
+    FROM risk_assessments
+    WHERE claim_id = c.claim_id
+    ORDER BY scored_at DESC
+    LIMIT 1
+) ra ON TRUE
+WHERE c.claim_id = $1 AND ra.risk_decision = ANY($2::text[])
+"""
+
 _CLAIM_DETAIL_SQL = """
 SELECT
     c.claim_id,
@@ -329,6 +350,32 @@ class PortalRepository:
                 }
             )
         return result
+
+    async def get_flagged_claim(self, claim_id: str) -> Optional[dict[str, Any]]:
+        """Return ONE flagged claim's queue row (same shape as ``list_flagged``).
+
+        Returns ``None`` when the claim does not exist or its latest decision is
+        not a flagged one (AUTO_APPROVE / INDETERMINATE). Used by the
+        ``claim.scored`` SSE consumer to push a newly-scored flagged claim to the
+        dashboard live (Req 22.1). PII is UNMASKED here; the SSE stream masks per
+        subscriber.
+        """
+        row = await self._pool.fetchrow(
+            _FLAGGED_ONE_SQL, claim_id, list(FLAGGED_DECISIONS)
+        )
+        if row is None:
+            return None
+        sin_hash = row["sin_hash"]
+        return {
+            "claim_id": str(row["claim_id"]),
+            "risk_score": row["risk_score"],
+            "risk_decision": row["risk_decision"],
+            "received_at": _iso(row["received_at"]),
+            "employer_bn": row["employer_bn"],
+            "claimant_name": _display_name_from_hash(sin_hash),
+            "claimant_sin": _pseudo_sin_from_hash(sin_hash),
+            "address": None,
+        }
 
     async def get_claim_detail(self, claim_id: str) -> Optional[dict[str, Any]]:
         """Return the full investigator detail for *claim_id*, or ``None``."""
@@ -548,6 +595,21 @@ class FakePortalRepository:
             key=lambda r: (r["risk_score"] or 0, r["received_at"]), reverse=True
         )
         return rows
+
+    async def get_flagged_claim(self, claim_id: str) -> Optional[dict[str, Any]]:
+        claim = self._claims.get(claim_id)
+        if claim is None or claim["risk_decision"] not in FLAGGED_DECISIONS:
+            return None
+        return {
+            "claim_id": claim["claim_id"],
+            "risk_score": claim["risk_score"],
+            "risk_decision": claim["risk_decision"],
+            "received_at": claim["received_at"],
+            "employer_bn": claim["employer_bn"],
+            "claimant_name": claim["claimant_name"],
+            "claimant_sin": claim["claimant_sin"],
+            "address": claim["address"],
+        }
 
     async def get_claim_detail(self, claim_id: str) -> Optional[dict[str, Any]]:
         claim = self._claims.get(claim_id)

@@ -73,6 +73,7 @@ try:  # sibling modules imported by bare name in the service directory
         mask_flagged,
     )
     from sse import ClaimEventBroadcaster, format_sse, HEARTBEAT_COMMENT  # type: ignore
+    from consumer import PortalScoredConsumer  # type: ignore
     import gckey  # type: ignore
 except ImportError:  # pragma: no cover - when imported as a package
     from .config import get_settings  # type: ignore
@@ -93,6 +94,7 @@ except ImportError:  # pragma: no cover - when imported as a package
         mask_flagged,
     )
     from .sse import ClaimEventBroadcaster, format_sse, HEARTBEAT_COMMENT  # type: ignore
+    from .consumer import PortalScoredConsumer  # type: ignore
     from . import gckey  # type: ignore
 
 
@@ -171,6 +173,7 @@ async def lifespan(app: FastAPI):
     app.state.kafka_producer = None
     app.state.repository = None
     app.state.broadcaster = ClaimEventBroadcaster()
+    app.state.scored_consumer = None
 
     # ── PostgreSQL ──────────────────────────────────────────────
     if _HAS_ASYNCPG:
@@ -197,9 +200,31 @@ async def lifespan(app: FastAPI):
         except Exception:  # noqa: BLE001 - degrade gracefully in dev
             app.state.kafka_producer = None
 
+    # ── Kafka (claim.scored -> SSE broadcaster consumer, Req 22.1) ──────
+    # Push newly-scored FLAGGED claims to open dashboards live so the queue
+    # updates without a manual reload. Self-healing connect (shared.retry) +
+    # degrade-gracefully: absent a broker the dashboard still works via the
+    # initial REST fetch. The repository is read lazily so a swap on app.state
+    # (dev fake -> real) is honoured.
+    try:
+        consumer = PortalScoredConsumer(
+            app.state.broadcaster,
+            lambda: getattr(app.state, "repository", None),
+            bootstrap_servers=settings.kafka_bootstrap_servers,
+        )
+        await consumer.start()
+        app.state.scored_consumer = consumer
+    except Exception:  # noqa: BLE001 - never block startup on the live feed
+        app.state.scored_consumer = None
+
     try:
         yield
     finally:
+        if app.state.scored_consumer is not None:
+            try:
+                await app.state.scored_consumer.stop()
+            except Exception:  # noqa: BLE001
+                pass
         if app.state.kafka_producer is not None:
             try:
                 await app.state.kafka_producer.stop()

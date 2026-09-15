@@ -75,6 +75,23 @@ mocked seams, which caused the prior fragility).
     `style_checker` wired to them over real HTTP with the `SERVICE_TOKEN` Bearer, and the
     LLM Service composed (8005). Deterministic seam live now; the real Llama 3.1 answer is
     model-gated. See "Slice 3+ — LLM Service" below.
+13. (Slice 2 follow-up) **Investigator Dashboard now updates LIVE (Req 22.1).** The SSE
+    broadcaster existed and the SPA subscribed to `GET /portal/events/claims`, but nothing
+    ever fed it — scored flagged claims only appeared after a manual reload. Added a
+    portal-backend Kafka consumer (`services/portal-backend/consumer.py`,
+    `PortalScoredConsumer`, group `portal-backend-sse`) that consumes `claim.scored`, reads
+    the flagged row (new `PortalRepository.get_flagged_claim`), and calls
+    `broadcaster.publish(...)`; the SSE endpoint still masks PII per subscriber. Only
+    FLAG_FOR_REVIEW / INVESTIGATE decisions are pushed (matches the investigator queue,
+    Req 22.1); AUTO_APPROVE / INDETERMINATE are not surfaced. Consumer `start()` schedules a
+    background connect (must NOT block lifespan — `connect_with_retry` has a ~60s backoff).
+    Also pinned **portal-backend to `--workers 1`** (compose `command`): the SSE broadcaster
+    and consumer are in-process singletons, so with >1 worker a `claim.scored` consumed by
+    one worker only reaches that worker's SSE subscribers (the browser EventSource is pinned
+    to a different worker ~50% of the time). Same in-process-singleton fix class as the
+    pipeline-orchestrator. Shared pub/sub for horizontal scaling is future work. Verified
+    live: submit → scored → flagged row arrives on the open dashboard with no reload, SIN
+    masked. 67 portal unit tests pass (adds `TestScoredConsumer`).
 
 ## Key finding (scope correction)
 The prior "systemic integration failure" was over-stated. The real pipeline-core defect
@@ -202,6 +219,10 @@ run via `tests/integration/loopback_service.py` (`LoopbackService` — uvicorn o
     detail → 403; REVIEWER queue masked), 22.2 (detail w/ real indicators + SHAP),
     22.3 (disposition persisted, detail reflects it), 22.4 (real outcome.feedback Kafka
     event for CONFIRMED_FRAUD; none for NEEDS_FURTHER_REVIEW), 22.1 SSE frame.
+  - LIVE feed (Req 22.1): the flagged queue now updates in real time — a portal-backend
+    `claim.scored` consumer publishes newly-scored flagged claims into the SSE broadcaster
+    (no manual reload). See Done item #13. Requires portal-backend `--workers 1` (in-process
+    broadcaster/consumer singletons).
   - Verified: portal unit 50 pass; full unit 1122 pass/22 skip; full integration 27 pass.
   - NOTE: the SPA's own frontend integration against a live backend (browser E2E) remains a
     later checkpoint. Task 30's determinate claimant→investigator flow is now demonstrable

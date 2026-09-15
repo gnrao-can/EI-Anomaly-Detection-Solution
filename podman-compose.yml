@@ -664,6 +664,15 @@ services:
       context: .
       dockerfile: services/portal-backend/Containerfile
     container_name: ei-ads-portal-backend
+    # SINGLE uvicorn worker (override the image's --workers 2). The SSE
+    # broadcaster and the claim.scored Kafka consumer are stateful, in-process
+    # singletons: with two workers each has its OWN broadcaster + consumer, so a
+    # claim.scored event consumed by worker A is published only to A's SSE
+    # subscribers, while the browser's EventSource is pinned to worker B — the
+    # live dashboard update then appears only ~half the time. One worker keeps
+    # the consumer and every open SSE stream in the same process. (Scale the
+    # dashboard read path horizontally later via a shared pub/sub, not workers.)
+    command: ["main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
     # No host port — reached via the Caddy proxy (localhost:8080). See claim-intake note.
     environment:
       POSTGRES_HOST: "postgres"

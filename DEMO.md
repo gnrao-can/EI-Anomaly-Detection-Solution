@@ -94,10 +94,15 @@ concurrently, an ensemble model scores it, and the result is stored.
 
 ### As an Investigator — review the claim
 5. Click **🔧 Demo as: Investigator** in the header.
-6. Click **Dashboard** in the nav.
-7. Your claim appears in the review queue with its **risk score and decision**.
-   Click it to see the per-engine indicators, the SHAP contribution chart, and
-   the bilingual explanation, and to record a disposition.
+6. Click **Dashboard** in the nav and leave it open.
+7. Your claim **appears in the review queue live** (within a few seconds of
+   scoring — no reload needed) with its **risk score and decision**. Click it to
+   see the per-engine indicators, the SHAP contribution chart, and the bilingual
+   explanation, and to record a disposition.
+
+> Tip: you can even open the Dashboard as Investigator FIRST (in one tab),
+> submit a claim as Claimant (in another), and watch the row arrive on the
+> dashboard on its own.
 
 That's the full loop: **claimant submits → pipeline scores → investigator
 reviews**, all from the browser.
@@ -106,12 +111,17 @@ reviews**, all from the browser.
 
 ## 4. Good to know
 
+- **The dashboard updates live.** When a submitted claim finishes scoring it
+  appears in the investigator queue automatically, within a few seconds — no
+  page reload needed. (Leave the Dashboard open after switching to Investigator
+  and watch the new row arrive.)
 - **"My claim isn't in the dashboard."** The investigator queue only shows
-  claims that were **flagged** (FLAG_FOR_REVIEW or INVESTIGATE). A low-risk
-  claim scores **AUTO_APPROVE** and is intentionally hidden. This usually
-  happens if you submit within the first few seconds after start-up, before the
-  ML engines finish warming. **Just submit one more claim** — it will score
-  higher and appear.
+  claims that were **flagged** (FLAG_FOR_REVIEW or INVESTIGATE) — that's by
+  design (an investigator reviews flagged claims, not routine ones). A low-risk
+  claim scores **AUTO_APPROVE** and is intentionally not shown. This can happen
+  if you submit within the first few seconds after start-up, before the ML
+  engines finish warming; **submit one more claim** and it will score higher and
+  appear.
 - **Personas are separate on purpose.** A claimant sees only their own claim; an
   investigator sees the flagged queue with privacy protections. Switch between
   them with the "Demo as" buttons — that's expected, not a limitation.
