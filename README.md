@@ -27,21 +27,30 @@ Open either file in a browser — no server required.
 
 ```
 EI-Anomaly-Detection-Solution/
-├── demo/                    # Static HTML demos (reference and pitch)
+├── demo/                    # Static HTML demos (reference/pitch) + DEMO.md (local demo guide)
 ├── docs/
-│   ├── architecture/        # Solution architecture documents
-│   ├── specs/               # Requirements and design specs
-│   └── data-sources/        # Data source integration specs and mock strategies
-├── mock-data/               # Mock data fixtures for each external data source
-│   ├── stats-canada/
-│   ├── cra/
-│   ├── provincial-registries/
-│   ├── cbsa/
-│   ├── geonames/
-│   ├── business-registries/
-│   ├── motor-vehicle/
-│   └── job-bank/
-└── src/                     # Application source (populated during implementation)
+│   ├── architecture/        # Solution architecture (FraudAI-Solution-Architecture.docx)
+│   ├── data-sources/        # External data source notes
+│   ├── regeneration/        # STATUS.md — regeneration status & roadmap
+│   ├── security/             # SBOM / security notes
+│   └── specs/                # Requirements/design — authoritative specs live in .kiro/specs/
+├── .kiro/
+│   ├── specs/ei-anomaly-detection-solution/   # Requirements, Design, Tasks — authoritative
+│   └── steering/regeneration-grounding.md
+├── services/                # Detection engines, adapters, orchestrator, portal, LLM, scorer (18 services)
+├── shared/                  # Shared Python package (models, auth, cache, metrics, telemetry, validation, retry)
+├── tests/                   # Unit / contract / property / integration / load tests
+├── k8s/                     # Kubernetes/OpenShift deployment manifests
+├── mock-data/               # Mock data fixtures per external data source
+├── scripts/                 # Build/deploy/test/migration scripts
+├── src/                     # Placeholder only — application source lives in services/ + shared/
+├── .env.example              # Environment template
+├── .env · .env.dev-token    # Local/dev secrets (gitignored in prod)
+├── podman-compose.yml       # Local full-stack compose
+├── Containerfiles/           # Rootless OCI images per service
+├── pyproject.toml · requirements.lock
+├── data/ · sbom/ · .github/ · .tekton/ · .pre-commit-config.yaml · .gitignore · .containerignore
+├── DEMO.md · README.md
 ```
 
 ## Data Sources
@@ -61,8 +70,15 @@ Eight external data sources are required. Each has a mock strategy for developme
 
 ## Status
 
-🟡 **Spec phase** — Requirements and design under review. Implementation pending approval.
+🟢 **Implementation phase** — Regenerated implementation verified against the Requirements and Design.
+
+- All six Detection_Engines are composed and exercised over real transports (Kafka, real HTTP, GCKey JWKS auth) via integration tests; the Ensemble Scorer wiring is complete (real ML models pending).
+- Live local demo stack available — `scripts/dev/start-stack.sh` → http://localhost:8090 (see `DEMO.md`).
+
+**Next:** real ensemble models (XGBoost / Isolation Forest); Kubernetes/OpenShift deployment; production data sources.
+
+Authoritative sources: [Requirements](.kiro/specs/ei-anomaly-detection-solution/requirements.md) · [Design](.kiro/specs/ei-anomaly-detection-solution/design.md) · [Tasks](.kiro/specs/ei-anomaly-detection-solution/tasks.md); living regeneration log: [docs/regeneration/STATUS.md](docs/regeneration/STATUS.md).
 
 ## Getting Started
 
-See [docs/specs/](docs/specs/) for requirements, design, and task breakdown.
+See [`.kiro/specs/ei-anomaly-detection-solution/`](.kiro/specs/ei-anomaly-detection-solution/) for requirements, design, and task breakdown (authoritative); see [docs/regeneration/STATUS.md](docs/regeneration/STATUS.md) for implementation status.

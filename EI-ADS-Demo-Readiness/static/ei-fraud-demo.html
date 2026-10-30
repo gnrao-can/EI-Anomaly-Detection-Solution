@@ -1,0 +1,1439 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI-Enabled EI Fraud Detection — Executive Demo</title>
+<style>
+:root{
+  --bg:#f8fafc;--surface:#ffffff;--surface2:#f1f5f9;
+  --navy:#1e3a5f;--navy-light:#2d5282;
+  --amber:#d97706;--amber-light:#fef3c7;
+  --green:#059669;--green-light:#d1fae5;
+  --red:#dc2626;--red-light:#fee2e2;
+  --orange:#ea580c;--orange-light:#ffedd5;
+  --purple:#7c3aed;--purple-light:#ede9fe;
+  --border:#e2e8f0;--text:#1e293b;--text-dim:#475569;--text-muted:#94a3b8;--heading:#0f172a;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh;}
+button{cursor:pointer;font-family:inherit;}
+
+/* ── NAV ── */
+#topnav{position:sticky;top:0;z-index:100;background:var(--navy);display:flex;align-items:center;gap:0;padding:0 24px;height:56px;box-shadow:0 2px 8px rgba(0,0,0,.25);}
+.nav-brand{color:#fff;font-size:1rem;font-weight:700;white-space:nowrap;margin-right:auto;letter-spacing:.01em;}
+.nav-links{display:flex;gap:4px;}
+.nav-btn{background:none;border:none;color:rgba(255,255,255,.8);padding:6px 14px;border-radius:6px;font-size:.875rem;transition:all .2s;}
+.nav-btn:hover,.nav-btn.active{background:rgba(255,255,255,.15);color:#fff;}
+.gov-tag{color:rgba(255,255,255,.5);font-size:.75rem;margin-left:16px;white-space:nowrap;}
+
+/* ── SECTIONS ── */
+.section{display:none;padding:40px 24px;max-width:1200px;margin:0 auto;}
+.section.active{display:block;}
+
+/* ── OVERVIEW ── */
+.hero{text-align:center;padding:48px 24px 40px;background:linear-gradient(135deg,var(--navy) 0%,var(--navy-light) 100%);border-radius:16px;color:#fff;margin-bottom:40px;}
+.hero h1{font-size:2rem;font-weight:800;line-height:1.2;margin-bottom:12px;}
+.hero p{font-size:1.1rem;color:rgba(255,255,255,.85);max-width:600px;margin:0 auto 28px;}
+.hero-btns{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;}
+.btn-primary{background:var(--amber);color:#fff;border:none;padding:12px 28px;border-radius:8px;font-size:.95rem;font-weight:600;transition:all .2s;}
+.btn-primary:hover{background:#b45309;transform:translateY(-1px);}
+.btn-outline{background:transparent;color:#fff;border:2px solid rgba(255,255,255,.6);padding:12px 28px;border-radius:8px;font-size:.95rem;font-weight:600;transition:all .2s;}
+.btn-outline:hover{border-color:#fff;background:rgba(255,255,255,.1);}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:40px;}
+@media(max-width:700px){.kpi-grid{grid-template-columns:repeat(2,1fr);}}
+.kpi-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.kpi-val{font-size:2rem;font-weight:800;margin-bottom:4px;}
+.kpi-label{color:var(--text-dim);font-size:.875rem;}
+
+.problem-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:40px;}
+@media(max-width:700px){.problem-grid{grid-template-columns:1fr;}}
+.problem-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:24px;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.problem-card h3{font-size:1rem;font-weight:700;margin-bottom:8px;color:var(--heading);}
+.problem-card p{font-size:.875rem;color:var(--text-dim);}
+
+.approach-row{display:flex;align-items:center;gap:0;background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.approach-step{flex:1;padding:20px 16px;text-align:center;}
+.approach-step h3{font-size:.95rem;font-weight:700;color:var(--navy);}
+.approach-step p{font-size:.8rem;color:var(--text-dim);margin-top:4px;}
+.approach-arrow{font-size:1.5rem;color:var(--amber);padding:0 4px;}
+
+section-title{display:block;font-size:1.3rem;font-weight:700;color:var(--heading);margin-bottom:16px;}
+
+/* ── ARCHITECTURE ── */
+.arch-toggle{display:flex;gap:0;background:var(--surface2);border:1px solid var(--border);border-radius:8px;overflow:hidden;width:fit-content;margin:0 auto 32px;}
+.arch-toggle button{border:none;background:none;padding:8px 20px;font-size:.875rem;font-weight:600;color:var(--text-dim);transition:all .2s;}
+.arch-toggle button.active{background:var(--navy);color:#fff;}
+
+.arch-diagram{background:var(--surface);border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,.08);}
+.arch-row{padding:20px 24px;}
+.arch-row-label{font-size:.75rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;margin-bottom:12px;}
+.arch-row.inputs{background:#eff6ff;}
+.arch-row.inputs .arch-row-label{color:#1d4ed8;}
+.arch-row.engine{background:#1e3a5f;color:#fff;}
+.arch-row.engine .arch-row-label{color:rgba(255,255,255,.6);}
+.arch-row.outcomes{background:#f0fdf4;}
+.arch-row.outcomes .arch-row-label{color:#15803d;}
+.arch-row.infra{background:var(--surface2);}
+.arch-row.infra .arch-row-label{color:var(--text-dim);}
+
+.arch-boxes{display:grid;gap:12px;}
+.arch-boxes.cols3{grid-template-columns:repeat(3,1fr);}
+.arch-boxes.cols2{grid-template-columns:repeat(2,1fr);}
+@media(max-width:700px){.arch-boxes.cols3,.arch-boxes.cols2{grid-template-columns:1fr;}}
+.arch-box{background:rgba(255,255,255,.9);border:1px solid rgba(0,0,0,.1);border-radius:8px;padding:14px 16px;font-size:.875rem;font-weight:600;color:var(--navy);}
+.arch-row.engine .arch-box{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.2);color:#fff;}
+.arch-box small{display:block;font-size:.75rem;font-weight:400;margin-top:4px;opacity:.7;}
+.engine-label{text-align:center;margin-top:12px;font-size:.8rem;color:rgba(255,255,255,.6);letter-spacing:.04em;}
+
+.arch-arrow-row{display:flex;justify-content:center;align-items:center;gap:0;padding:6px 0;background:var(--surface);}
+.arch-arrow{display:flex;justify-content:space-around;width:100%;padding:0 80px;}
+.arch-arrow-line{width:2px;height:20px;position:relative;}
+.arch-arrow-line::before{content:'';display:block;width:2px;height:16px;background:var(--amber);animation:pulse-down 1.5s infinite;}
+.arch-arrow-line::after{content:'▼';position:absolute;bottom:-4px;left:50%;transform:translateX(-50%);color:var(--amber);font-size:.7rem;}
+@keyframes pulse-down{0%,100%{opacity:.4;}50%{opacity:1;}}
+
+.outcome-box{border-radius:8px;padding:14px 16px;font-size:.875rem;font-weight:600;text-align:center;}
+.outcome-approve{background:var(--green-light);border:1px solid var(--green);color:#065f46;}
+.outcome-review{background:var(--amber-light);border:1px solid var(--amber);color:#92400e;}
+.outcome-investigate{background:var(--red-light);border:1px solid var(--red);color:#991b1b;}
+
+.data-sources-strip{padding:16px 24px;display:flex;flex-wrap:wrap;gap:8px;border-top:1px solid var(--border);background:var(--surface2);}
+.ds-badge{background:var(--navy-light);color:#fff;padding:4px 12px;border-radius:20px;font-size:.75rem;font-weight:600;}
+
+/* ── USE CASES ── */
+.uc-tabs{display:flex;gap:0;border-bottom:2px solid var(--border);margin-bottom:24px;overflow-x:auto;}
+.uc-tab{border:none;background:none;padding:10px 16px;font-size:.875rem;font-weight:600;color:var(--text-dim);border-bottom:3px solid transparent;margin-bottom:-2px;white-space:nowrap;transition:all .2s;border-radius:6px 6px 0 0;}
+.uc-tab:hover{color:var(--navy);background:var(--surface2);}
+.uc-tab.active{font-weight:700;background:var(--surface);border-bottom-color:var(--navy);box-shadow:0 -2px 8px rgba(0,0,0,.06);}
+.uc-tab[data-uc="0"].active{color:#2d5282;border-bottom-color:#2d5282;}
+.uc-tab[data-uc="1"].active{color:#d97706;border-bottom-color:#d97706;}
+.uc-tab[data-uc="2"].active{color:#dc2626;border-bottom-color:#dc2626;}
+.uc-tab[data-uc="3"].active{color:#0891b2;border-bottom-color:#0891b2;}
+.uc-tab[data-uc="4"].active{color:#7c3aed;border-bottom-color:#7c3aed;}
+.uc-tab[data-uc="5"].active{color:#6d28d9;border-bottom-color:#6d28d9;}
+
+.uc-panel{display:none;}
+.uc-panel.active{display:block;}
+
+.algo-badge-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;align-items:center;}
+.algo-badge{padding:3px 10px;border-radius:20px;font-size:.75rem;font-weight:700;color:#fff;}
+.badge-rule{background:#2d5282;}
+.badge-ml{background:#7c3aed;}
+.badge-llm{background:#0891b2;}
+.badge-gnn{background:#059669;}
+.badge-geo{background:#d97706;}
+.badge-ts{background:#6d28d9;}
+.badge-forensic{background:#9f1239;}
+.badge-layoutlm{background:#7c3aed;}
+
+.uc-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;}
+@media(max-width:900px){.uc-grid{grid-template-columns:1fr;}}
+
+.uc-col{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;position:relative;}
+.uc-col-title{font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:14px;}
+
+/* Claim form */
+.form-field{margin-bottom:10px;}
+.form-field label{display:block;font-size:.75rem;font-weight:600;color:var(--text-dim);margin-bottom:2px;}
+.form-field .fval{font-size:.85rem;color:var(--text);padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface2);}
+.form-field.highlight-amber .fval{background:var(--amber-light);border-color:var(--amber);animation:flash-amber .5s;}
+.form-field.highlight-red .fval{background:var(--red-light);border-color:var(--red);animation:flash-red .5s;}
+@keyframes flash-amber{0%,100%{background:var(--amber-light);}50%{background:#fde68a;}}
+@keyframes flash-red{0%,100%{background:var(--red-light);}50%{background:#fca5a5;}}
+.form-section-label{font-size:.75rem;font-weight:700;color:var(--navy);margin:12px 0 6px;text-transform:uppercase;letter-spacing:.06em;}
+.footnote{font-size:.7rem;color:var(--text-muted);margin-top:12px;border-top:1px solid var(--border);padding-top:8px;}
+
+/* Processing steps */
+.step-item{display:flex;align-items:flex-start;gap:10px;padding:8px 0;opacity:0;transform:translateY(6px);transition:opacity .3s,transform .3s;}
+.step-item.visible{opacity:1;transform:translateY(0);}
+.step-dot{width:10px;height:10px;border-radius:50%;background:#cbd5e1;margin-top:5px;flex-shrink:0;transition:background .3s;}
+.step-dot.amber{background:var(--amber);}
+.step-dot.red{background:var(--red);}
+.step-dot.green{background:var(--green);}
+.step-text{font-size:.82rem;color:var(--text-dim);}
+.step-text strong{color:var(--text);}
+
+/* Score gauge */
+.score-container{text-align:center;margin-bottom:16px;}
+.score-circle{width:100px;height:100px;border-radius:50%;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;flex-direction:column;border:5px solid var(--border);transition:border-color .5s;}
+.score-circle.low{border-color:var(--green);}
+.score-circle.medium{border-color:var(--amber);}
+.score-circle.high{border-color:var(--orange);}
+.score-circle.critical{border-color:var(--red);}
+.score-num{font-size:1.8rem;font-weight:800;line-height:1;}
+.score-label{font-size:.65rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;}
+
+.risk-badge{display:inline-block;padding:4px 14px;border-radius:20px;font-size:.8rem;font-weight:700;margin-bottom:16px;}
+.risk-LOW{background:var(--green-light);color:#065f46;}
+.risk-MEDIUM{background:var(--amber-light);color:#92400e;}
+.risk-HIGH{background:var(--orange-light);color:#9a3412;}
+.risk-CRITICAL{background:var(--red-light);color:#991b1b;}
+
+.indicator-card{border-radius:8px;padding:10px 12px;margin-bottom:8px;font-size:.8rem;border:1px solid;opacity:0;transform:translateY(8px);transition:opacity .4s,transform .4s;}
+.indicator-card.visible{opacity:1;transform:translateY(0);}
+.ind-critical{background:var(--red-light);border-color:var(--red);}
+.ind-high{background:var(--orange-light);border-color:var(--orange);}
+.ind-medium{background:var(--amber-light);border-color:var(--amber);}
+.ind-title{font-weight:700;color:var(--heading);display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.ind-desc{color:var(--text-dim);margin-top:3px;}
+
+.rec-box{background:var(--navy);color:#fff;border-radius:8px;padding:12px 14px;margin-top:12px;font-size:.85rem;font-weight:700;text-align:center;}
+
+.run-btn{background:var(--navy);color:#fff;border:none;padding:10px 20px;border-radius:8px;font-size:.875rem;font-weight:700;margin-bottom:16px;width:100%;transition:all .2s;}
+.run-btn:hover{background:var(--navy-light);}
+.run-btn:active{transform:scale(.98);}
+
+.presenter-note{border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-top:12px;}
+.pn-toggle{background:var(--surface2);border:none;width:100%;text-align:left;padding:8px 12px;font-size:.8rem;font-weight:600;color:var(--text-dim);display:flex;justify-content:space-between;align-items:center;}
+.pn-toggle:hover{background:var(--border);}
+.pn-body{display:none;padding:12px;font-size:.82rem;color:var(--text-dim);line-height:1.55;}
+.pn-body.open{display:block;}
+
+/* Comparison table */
+.comp-table{width:100%;border-collapse:collapse;font-size:.78rem;}
+.comp-table th{background:var(--navy);color:#fff;padding:6px 10px;text-align:left;}
+.comp-table td{padding:6px 10px;border-bottom:1px solid var(--border);}
+.comp-table tr.mismatch td{background:var(--red-light);}
+.comp-table tr.overlap td{background:var(--amber-light);}
+.comp-table tr.match td{background:var(--green-light);}
+
+/* Mock ROE doc */
+.roe-doc{border:2px solid #94a3b8;border-radius:6px;position:relative;background:var(--surface);overflow:visible;}
+.roe-header{background:#1e3a5f;color:#fff;padding:10px 14px;font-size:.8rem;font-weight:700;border-radius:4px 4px 0 0;}
+.roe-body{padding:14px;}
+.roe-field{display:flex;gap:8px;margin-bottom:6px;font-size:.78rem;}
+.roe-key{color:var(--text-dim);width:160px;flex-shrink:0;}
+.roe-val{font-weight:600;color:var(--text);}
+.roe-annotation{display:block;border-radius:4px;padding:4px 10px;font-size:.72rem;font-weight:700;color:#fff;white-space:normal;max-width:100%;margin-top:6px;line-height:1.4;}
+.ann-red{background:var(--red);}
+.ann-amber{background:var(--amber);}
+#uc4-doc{overflow:visible;position:relative;}
+.roe-annotations-list{margin-top:12px;display:flex;flex-direction:column;gap:6px;}
+
+/* Bar chart / sparkline */
+.spark-wrap{margin-top:12px;}
+.spark-label{font-size:.72rem;color:var(--text-dim);margin-bottom:6px;font-weight:600;}
+.spark-bars{display:flex;align-items:flex-end;gap:3px;height:48px;}
+.spark-bar{flex:1;background:var(--navy-light);border-radius:2px 2px 0 0;min-height:4px;transition:background .3s;}
+.spark-bar.highlight{background:var(--amber);}
+
+/* SVG mini graph */
+.mini-graph{margin-top:8px;}
+
+/* ── GUIDED PITCH (TOUR) ── */
+#tour-float{position:fixed;bottom:24px;right:24px;z-index:200;width:340px;background:var(--surface);border:1px solid var(--border);border-radius:14px;box-shadow:0 8px 32px rgba(0,0,0,.18);overflow:hidden;display:none;user-select:none;}
+#tour-float.open{display:block;}
+.tour-header{background:var(--navy);color:#fff;padding:14px 16px;display:flex;align-items:center;justify-content:space-between;cursor:grab;}
+.tour-header:active{cursor:grabbing;}
+.tour-header h3{font-size:.95rem;font-weight:700;}
+.tour-step-count{font-size:.75rem;opacity:.7;}
+.tour-close{background:none;border:none;color:#fff;font-size:1.2rem;opacity:.7;padding:0 4px;cursor:pointer;}
+.tour-close:hover{opacity:1;}
+.tour-body{padding:16px;}
+.tour-step-title{font-size:1rem;font-weight:700;color:var(--heading);margin-bottom:6px;}
+.tour-step-context{font-size:.85rem;color:var(--text-dim);margin-bottom:12px;}
+.tour-talking-points{list-style:none;padding:0;margin-bottom:16px;}
+.tour-talking-points li{font-size:.8rem;color:var(--text-dim);padding:4px 0 4px 18px;position:relative;}
+.tour-talking-points li::before{content:"→";position:absolute;left:0;color:var(--amber);}
+.tour-dots{display:flex;gap:6px;justify-content:center;margin-bottom:12px;}
+.tour-dot{width:8px;height:8px;border-radius:50%;background:var(--border);}
+.tour-dot.active{background:var(--navy);}
+.tour-footer{display:flex;gap:8px;}
+.tour-btn-back{flex:1;background:var(--surface2);border:1px solid var(--border);padding:8px;border-radius:6px;font-size:.85rem;font-weight:600;color:var(--text-dim);}
+.tour-btn-next{flex:2;background:var(--navy);border:none;padding:8px;border-radius:6px;font-size:.85rem;font-weight:700;color:#fff;}
+.tour-btn-back:disabled{opacity:.4;cursor:not-allowed;}
+
+/* ── GUIDED PITCH SECTION ── */
+.pitch-hero{background:var(--navy);color:#fff;border-radius:12px;padding:40px;text-align:center;margin-bottom:32px;}
+.pitch-hero h2{font-size:1.6rem;font-weight:800;margin-bottom:12px;}
+.pitch-hero p{color:rgba(255,255,255,.8);max-width:540px;margin:0 auto 24px;}
+.start-tour-btn{background:var(--amber);color:#fff;border:none;padding:14px 32px;border-radius:8px;font-size:1rem;font-weight:700;transition:all .2s;}
+.start-tour-btn:hover{background:#b45309;}
+
+/* Utilities */
+.section-heading{font-size:1.4rem;font-weight:800;color:var(--heading);margin-bottom:8px;}
+.section-sub{font-size:.95rem;color:var(--text-dim);margin-bottom:28px;}
+.badge-row{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px;}
+</style>
+</head>
+<body>
+
+<!-- ===== NAVIGATION ===== -->
+<nav id="topnav" role="navigation" aria-label="Main navigation">
+  <div class="nav-brand">🇨🇦 AI-Enabled EI Fraud Detection</div>
+  <div class="nav-links">
+    <button class="nav-btn active" onclick="setSection('overview')" aria-label="Overview">Overview</button>
+    <button class="nav-btn" onclick="setSection('architecture')" aria-label="Architecture">Architecture</button>
+    <button class="nav-btn" onclick="setSection('usecases')" aria-label="Use Cases">Use Cases</button>
+    <button class="nav-btn" onclick="setSection('pitch')" aria-label="Guided Pitch">Guided Pitch</button>
+  </div>
+  <span class="gov-tag">Government of Canada</span>
+</nav>
+
+<!-- ===== SECTION 1: OVERVIEW ===== -->
+<div id="sec-overview" class="section active">
+  <div class="hero">
+    <h1>Protecting Canada's Employment Insurance Program</h1>
+    <p>AI-powered fraud detection that stops fraud before payment — saving $$$$+ annually</p>
+    <div class="hero-btns">
+      <button class="btn-primary" onclick="setSection('usecases')">Explore Use Cases</button>
+      <button class="btn-outline" onclick="startTour()">Take the Guided Tour</button>
+    </div>
+  </div>
+
+  <div class="kpi-grid">
+    <div class="kpi-card">
+      <div class="kpi-val" style="color:var(--green)">85%+</div>
+      <div class="kpi-label">Fraud Detection Rate</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-val" style="color:var(--green)">&lt;5%</div>
+      <div class="kpi-label">False Positive Rate</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-val" style="color:var(--amber)">$100M+</div>
+      <div class="kpi-label">Annual Savings</div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-val" style="color:var(--navy)">&lt;2s</div>
+      <div class="kpi-label">Decision Time</div>
+    </div>
+  </div>
+
+  <p style="font-size:.75rem;color:var(--text-muted);text-align:center;margin:-28px 0 32px;font-style:italic;">* These figures are illustrative targets for planning purposes only and do not represent actual measured outcomes.</p>
+
+  <div style="margin-bottom:40px;">
+    <div class="section-heading">The Problem We Solve</div>
+    <div class="section-sub">EI fraud is sophisticated, high-volume, and invisible to siloed systems.</div>
+    <div class="problem-grid">
+      <div class="problem-card">
+        <div style="font-size:1.8rem;margin-bottom:10px;">🧠</div>
+        <h3>Fraudsters are sophisticated</h3>
+        <p>Organized rings, forged documents, and shell employers exploit gaps that rule-based systems cannot anticipate.</p>
+      </div>
+      <div class="problem-card">
+        <div style="font-size:1.8rem;margin-bottom:10px;">📊</div>
+        <h3>Volume overwhelms investigators</h3>
+        <p>2M+ claims per year make manual review impossible. Most fraud goes undetected until after payments are issued.</p>
+      </div>
+      <div class="problem-card">
+        <div style="font-size:1.8rem;margin-bottom:10px;">🔗</div>
+        <h3>Siloed systems miss patterns</h3>
+        <p>Patterns only visible when EI, CRA, and employer data are combined — no legacy system connects these in real time.</p>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-bottom:40px;">
+    <div class="section-heading">Our Approach</div>
+    <div class="section-sub">Three stages, fully automated, under 2 seconds.</div>
+    <div class="approach-row">
+      <div class="approach-step">
+        <div style="font-size:1.5rem;margin-bottom:6px;">📥</div>
+        <h3>Claim Intake</h3>
+        <p>Claimant submits, employer ROE received, external sources queried</p>
+      </div>
+      <div class="approach-arrow">→</div>
+      <div class="approach-step">
+        <div style="font-size:1.5rem;margin-bottom:6px;">🤖</div>
+        <h3>AI Multi-Signal Analysis</h3>
+        <p>6 detection algorithms run in parallel across all data sources</p>
+      </div>
+      <div class="approach-arrow">→</div>
+      <div class="approach-step">
+        <div style="font-size:1.5rem;margin-bottom:6px;">⚡</div>
+        <h3>Low Latency Risk Decision</h3>
+        <p>Explainable verdict: approve, review, or escalate — with reasons, in real time</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION 2: ARCHITECTURE ===== -->
+<div id="sec-architecture" class="section">
+  <div class="section-heading">System Architecture</div>
+  <div class="section-sub">How the AI-Enabled EI Fraud Detection System processes every claim.</div>
+
+  <div class="arch-toggle" role="group" aria-label="Architecture view toggle">
+    <button id="arch-biz-btn" class="active" onclick="setArchView('biz')" aria-pressed="true">Business View</button>
+    <button id="arch-tech-btn" onclick="setArchView('tech')" aria-pressed="false">Technical View</button>
+  </div>
+
+  <!-- BUSINESS VIEW -->
+  <div id="arch-biz" class="arch-diagram">
+    <div class="arch-row inputs">
+      <div class="arch-row-label">📥 Inputs — Data Sources</div>
+      <div class="arch-boxes cols3">
+        <div class="arch-box">📋 Claimant Submission<small>EI application form, SIN, employment history</small></div>
+        <div class="arch-box">🏢 Employer ROE Data<small>Record of Employment via ROE Web</small></div>
+        <div class="arch-box">🌐 External Data Sources<small>Stats Can, CRA, GeoNames, Registries</small></div>
+      </div>
+    </div>
+    <div class="arch-arrow-row">
+      <div class="arch-arrow">
+        <div class="arch-arrow-line"></div>
+        <div class="arch-arrow-line"></div>
+        <div class="arch-arrow-line"></div>
+      </div>
+    </div>
+    <div class="arch-row engine">
+      <div class="arch-row-label">🤖 AI Fraud Detection Engine</div>
+      <div class="arch-boxes cols2">
+        <div class="arch-box">🔍 Pattern &amp; Anomaly Detection<small>Sequential patterns, time-series anomalies</small></div>
+        <div class="arch-box">🗺️ Geographic &amp; Network Analysis<small>Commute validation, fraud ring mapping</small></div>
+        <div class="arch-box">📄 Document Authenticity<small>OCR, font fingerprinting, metadata forensics</small></div>
+        <div class="arch-box">📊 Risk Scoring &amp; Explainability<small>Ensemble score with natural language reasons</small></div>
+      </div>
+      <div class="engine-label">Real-time • Explainable • Bilingual</div>
+    </div>
+    <div class="arch-arrow-row">
+      <div class="arch-arrow">
+        <div class="arch-arrow-line"></div>
+        <div class="arch-arrow-line"></div>
+        <div class="arch-arrow-line"></div>
+      </div>
+    </div>
+    <div class="arch-row outcomes">
+      <div class="arch-row-label">✅ Outcomes — Risk Decision</div>
+      <div class="arch-boxes cols3">
+        <div class="outcome-box outcome-approve">✅ Auto-Approve<br><small>Low Risk (&lt;30)</small></div>
+        <div class="outcome-box outcome-review">⚠️ Flag for Review<br><small>Medium Risk (30–69)</small></div>
+        <div class="outcome-box outcome-investigate">🚨 Investigate<br><small>High / Critical Risk (70+)</small></div>
+      </div>
+    </div>
+    <div class="data-sources-strip">
+      <span style="font-size:.75rem;font-weight:700;color:var(--text-dim);margin-right:4px;align-self:center;">Data Sources:</span>
+      <span class="ds-badge">Stats Canada</span>
+      <span class="ds-badge">CRA Tax Data</span>
+      <span class="ds-badge">Provincial Registries</span>
+      <span class="ds-badge">CBSA Border Data</span>
+      <span class="ds-badge">GeoNames</span>
+      <span class="ds-badge">Business Registries</span>
+      <span class="ds-badge">Motor Vehicle Registry</span>
+      <span class="ds-badge">Job Bank Canada</span>
+    </div>
+  </div>
+
+  <!-- TECHNICAL VIEW -->
+  <div id="arch-tech" class="arch-diagram" style="display:none;">
+    <div class="arch-row inputs">
+      <div class="arch-row-label">📥 Inputs — Integration Layer</div>
+      <div class="arch-boxes cols3">
+        <div class="arch-box">⚛️ Claimant Portal<small>React + FastAPI — OAuth 2.0 / GCKey</small></div>
+        <div class="arch-box">🔌 ROE API Integration<small>Employer Integration — REST/SOAP adapter</small></div>
+        <div class="arch-box">🌐 External APIs<small>Stats Canada • CRA • GeoNames • CBSA</small></div>
+      </div>
+    </div>
+    <div class="arch-arrow-row">
+      <div class="arch-arrow">
+        <div class="arch-arrow-line"></div>
+        <div class="arch-arrow-line"></div>
+        <div class="arch-arrow-line"></div>
+      </div>
+    </div>
+    <div class="arch-row engine">
+      <div class="arch-row-label">🤖 AI Engine — ML Pipeline</div>
+      <div class="arch-boxes cols2">
+        <div class="arch-box">🔁 Sequential Pattern Mining + Llama 3.1<small>LangChain orchestration, RAG pipeline</small></div>
+        <div class="arch-box">🕸️ Graph Neural Network + Neo4j<small>Community detection, link analysis</small></div>
+        <div class="arch-box">📄 LayoutLMv3 + Forensic Analysis<small>Document AI, PDF metadata, font fingerprinting</small></div>
+        <div class="arch-box">📊 XGBoost + Isolation Forest<small>Ensemble scoring, SHAP explainability</small></div>
+      </div>
+      <div class="engine-label">LangChain Orchestration • Kafka Streaming • Redis Cache</div>
+    </div>
+    <div class="arch-arrow-row">
+      <div class="arch-arrow">
+        <div class="arch-arrow-line"></div>
+        <div class="arch-arrow-line"></div>
+        <div class="arch-arrow-line"></div>
+      </div>
+    </div>
+    <div class="arch-row infra">
+      <div class="arch-row-label">🏗️ Infrastructure</div>
+      <div class="arch-boxes cols3">
+        <div class="arch-box">🗄️ PostgreSQL + ClickHouse<small>Transactional + analytical data stores</small></div>
+        <div class="arch-box">☸️ Kubernetes / OpenShift<small>Government cloud (GCP / Azure Gov)</small></div>
+        <div class="arch-box">📈 Prometheus + Grafana<small>Real-time monitoring &amp; alerting</small></div>
+      </div>
+    </div>
+    <div class="data-sources-strip">
+      <span style="font-size:.75rem;font-weight:700;color:var(--text-dim);margin-right:4px;align-self:center;">Data Sources:</span>
+      <span class="ds-badge">Stats Canada</span>
+      <span class="ds-badge">CRA Tax Data</span>
+      <span class="ds-badge">Provincial Registries</span>
+      <span class="ds-badge">CBSA Border Data</span>
+      <span class="ds-badge">GeoNames</span>
+      <span class="ds-badge">Business Registries</span>
+    </div>
+  </div>
+</div>
+
+<!-- ===== SECTION 3: USE CASES ===== -->
+<div id="sec-usecases" class="section">
+  <div class="section-heading">Interactive Fraud Detection Use Cases</div>
+  <div class="section-sub">Click "Run Detection" on any panel to see the AI analysis in action.</div>
+
+  <div class="uc-tabs" role="tablist" aria-label="Use case tabs">
+    <button class="uc-tab active" data-uc="0" role="tab" aria-selected="true" onclick="setUseCase(0)">🔁 Repetitive Patterns</button>
+    <button class="uc-tab" data-uc="1" role="tab" aria-selected="false" onclick="setUseCase(1)">📍 Geographic Anomaly</button>
+    <button class="uc-tab" data-uc="2" role="tab" aria-selected="false" onclick="setUseCase(2)">🕸️ Fraud Ring</button>
+    <button class="uc-tab" data-uc="3" role="tab" aria-selected="false" onclick="setUseCase(3)">📋 History Mismatch</button>
+    <button class="uc-tab" data-uc="4" role="tab" aria-selected="false" onclick="setUseCase(4)">📄 Document Forgery</button>
+    <button class="uc-tab" data-uc="5" role="tab" aria-selected="false" onclick="setUseCase(5)">📊 Regional Analysis</button>
+  </div>
+
+  <!-- UC1: REPETITIVE PATTERNS -->
+  <div id="uc-0" class="uc-panel active">
+    <div class="algo-badge-row">
+      <span class="algo-badge badge-rule">RULE</span>
+      <span class="algo-badge badge-ts">Sequential Pattern Mining</span>
+      <span class="algo-badge badge-llm">LLM Contextual Analysis</span>
+    </div>
+    <div class="uc-grid">
+      <!-- LEFT -->
+      <div class="uc-col">
+        <div class="uc-col-title">Claim Data</div>
+        <div class="form-field"><label>ROE Number</label><div class="fval">ROE-2024-ON-447821</div></div>
+        <div class="form-field"><label>Claimant SIN</label><div class="fval">[PROTECTED]</div></div>
+        <div class="form-field"><label>Province of Employment</label><div class="fval">Ontario</div></div>
+        <div class="form-field" id="uc0-f-employer"><label>Employer</label><div class="fval">Northern Seasonal Foods Inc.</div></div>
+        <div class="form-field" id="uc0-f-hours"><label>Insurable Hours</label><div class="fval">423 hrs (min. threshold: 420)</div></div>
+        <div class="form-field"><label>Insurable Earnings</label><div class="fval">$14,280</div></div>
+        <div class="form-field"><label>Reason for Separation</label><div class="fval">Shortage of work</div></div>
+        <div class="form-section-label">Previous Claims</div>
+        <div class="form-field" id="uc0-f-prev1"><label>Claim 1 — Jan 2022</label><div class="fval">Northern Seasonal Foods Inc. — 421 hrs</div></div>
+        <div class="form-field" id="uc0-f-prev2"><label>Claim 2 — Jan 2023</label><div class="fval">Northern Seasonal Foods Inc. — 422 hrs</div></div>
+        <div class="form-field" id="uc0-f-prev3"><label>Claim 3 — Jan 2024</label><div class="fval">Northern Seasonal Foods Inc. — 423 hrs</div></div>
+        <div class="footnote">Data sources: EI Claim System, ROE Web, CRA T4 History</div>
+      </div>
+      <!-- CENTER -->
+      <div class="uc-col">
+        <div class="uc-col-title">AI Processing</div>
+        <button class="run-btn" onclick="runDetection(0)" id="run-btn-0">▶ Run Detection</button>
+        <div id="uc0-steps">
+          <div class="step-item" id="uc0-s0"><div class="step-dot"></div><div class="step-text">Extract claim sequence → <strong>3 claims in 24 months</strong> ⚠️</div></div>
+          <div class="step-item" id="uc0-s1"><div class="step-dot"></div><div class="step-text">Calculate inter-claim gap → <strong>51 weeks, 52 weeks</strong> ⚠️</div></div>
+          <div class="step-item" id="uc0-s2"><div class="step-dot"></div><div class="step-text">Same employer detected → <strong>3/3 claims — Northern Seasonal Foods Inc.</strong> ⚠️</div></div>
+          <div class="step-item" id="uc0-s3"><div class="step-dot"></div><div class="step-text">Hours analysis → <strong>421, 422, 423 hrs (exactly minimum each year)</strong> 🚨</div></div>
+          <div class="step-item" id="uc0-s4"><div class="step-dot"></div><div class="step-text">LLM narrative check → <strong>"Reason for separation identical across all 3 claims"</strong> 🚨</div></div>
+          <div class="step-item" id="uc0-s5"><div class="step-dot"></div><div class="step-text">Risk score computed → <strong>Pattern score: 78/100</strong></div></div>
+        </div>
+        <div class="footnote" style="margin-top:16px;">Algorithm: Sequential Pattern Mining → LLM Contextual Analysis → Risk Aggregation</div>
+      </div>
+      <!-- RIGHT -->
+      <div class="uc-col">
+        <div class="uc-col-title">Detection Result</div>
+        <div class="score-container">
+          <div class="score-circle" id="uc0-circle"><div class="score-num" id="uc0-score">0</div><div class="score-label" id="uc0-level">—</div></div>
+          <div id="uc0-risk-badge"></div>
+        </div>
+        <div id="uc0-indicators">
+          <div class="indicator-card ind-high" id="uc0-i0">
+            <div class="ind-title">🚨 Repetitive Seasonal Pattern <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">3 claims from same employer in consecutive Januaries</div>
+          </div>
+          <div class="indicator-card ind-high" id="uc0-i1">
+            <div class="ind-title">⚠️ Minimum Hours Gaming <span class="algo-badge badge-ml" style="font-size:.65rem;padding:1px 6px;">ML</span></div>
+            <div class="ind-desc">Hours at minimum threshold in all claims (421, 422, 423)</div>
+          </div>
+          <div class="indicator-card ind-medium" id="uc0-i2">
+            <div class="ind-title">⚠️ LLM Narrative Match <span class="algo-badge badge-llm" style="font-size:.65rem;padding:1px 6px;">LLM</span></div>
+            <div class="ind-desc">Separation reasons are verbatim identical across claims</div>
+          </div>
+        </div>
+        <div class="rec-box" id="uc0-rec" style="display:none;">🏷️ FLAG_FOR_REVIEW</div>
+        <div class="presenter-note">
+          <button class="pn-toggle" onclick="toggleNote(this)" aria-expanded="false">💬 Presenter Note <span>▼</span></button>
+          <div class="pn-body">This pattern would take an investigator hours to spot in legacy systems. The AI detects it in under 2 seconds — and explains <em>why</em> it's suspicious, not just that it is.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UC2: GEOGRAPHIC ANOMALY -->
+  <div id="uc-1" class="uc-panel">
+    <div class="algo-badge-row">
+      <span class="algo-badge badge-geo">GEOSPATIAL Analysis</span>
+      <span class="algo-badge badge-ml">Commute Profiling</span>
+    </div>
+    <div class="uc-grid">
+      <div class="uc-col">
+        <div class="uc-col-title">Claim Data</div>
+        <div class="form-field"><label>ROE Number</label><div class="fval">ROE-2024-BC-112034</div></div>
+        <div class="form-field" id="uc1-f-addr"><label>Claimant Address</label><div class="fval">142 Elm Street, Surrey, BC V3R 0A1</div></div>
+        <div class="form-field"><label>Employer Name</label><div class="fval">Pacific Coast Fisheries Ltd.</div></div>
+        <div class="form-field" id="uc1-f-work"><label>Work Location</label><div class="fval">Prince Rupert, BC (8800 Marine Dr)</div></div>
+        <div class="form-field"><label>Employment Type</label><div class="fval">Full-time</div></div>
+        <div class="form-field" id="uc1-f-vehicle"><label>Vehicle Registered</label><div class="fval">No</div></div>
+        <div class="form-field" id="uc1-f-transit"><label>Public Transit Route</label><div class="fval">No direct transit Prince Rupert ↔ Surrey</div></div>
+        <div class="form-field"><label>Separation Date</label><div class="fval">October 15, 2024</div></div>
+        <div class="footnote">Data sources: Canada Post / Address DB, BC Motor Vehicle Registry, TransLink / BC Transit, GeoNames</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">AI Processing</div>
+        <button class="run-btn" onclick="runDetection(1)" id="run-btn-1">▶ Run Detection</button>
+        <div id="uc1-steps">
+          <div class="step-item" id="uc1-s0"><div class="step-dot"></div><div class="step-text">Calculate residence → workplace distance → <strong>1,487 km</strong> 🚨</div></div>
+          <div class="step-item" id="uc1-s1"><div class="step-dot"></div><div class="step-text">Check vehicle registry → <strong>No vehicle registered to claimant</strong> ⚠️</div></div>
+          <div class="step-item" id="uc1-s2"><div class="step-dot"></div><div class="step-text">Check public transit → <strong>No bus/rail route connects Surrey to Prince Rupert</strong> ⚠️</div></div>
+          <div class="step-item" id="uc1-s3"><div class="step-dot"></div><div class="step-text">Cross-check prior claims → <strong>Claimant's last 2 employers also in Prince Rupert</strong> ⚠️</div></div>
+          <div class="step-item" id="uc1-s4"><div class="step-dot"></div><div class="step-text">Flight cost analysis → <strong>Round-trip ($480/wk) exceeds benefit rate ($380/wk)</strong> 🚨</div></div>
+          <div class="step-item" id="uc1-s5"><div class="step-dot"></div><div class="step-text">Risk score computed → <strong>Geographic anomaly score: 82/100</strong></div></div>
+        </div>
+        <div class="footnote" style="margin-top:16px;">Algorithm: Geospatial Distance → Motor Vehicle API → Transit Route → Economic Analysis</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">Detection Result</div>
+        <div class="score-container">
+          <div class="score-circle" id="uc1-circle"><div class="score-num" id="uc1-score">0</div><div class="score-label" id="uc1-level">—</div></div>
+          <div id="uc1-risk-badge"></div>
+        </div>
+        <div id="uc1-indicators">
+          <div class="indicator-card ind-critical" id="uc1-i0">
+            <div class="ind-title">🚨 Implausible Commute Distance <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">1,487 km between home and work with no transit or vehicle</div>
+          </div>
+          <div class="indicator-card ind-high" id="uc1-i1">
+            <div class="ind-title">⚠️ Address-Employment Inconsistency <span class="algo-badge badge-ml" style="font-size:.65rem;padding:1px 6px;">ML</span></div>
+            <div class="ind-desc">Pattern matches known ghost-employment profiles</div>
+          </div>
+          <div class="indicator-card ind-high" id="uc1-i2">
+            <div class="ind-title">⚠️ Economic Implausibility <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">Transportation cost exceeds EI benefit value</div>
+          </div>
+        </div>
+        <div class="rec-box" id="uc1-rec" style="display:none;">🚨 INVESTIGATE</div>
+        <div class="presenter-note">
+          <button class="pn-toggle" onclick="toggleNote(this)" aria-expanded="false">💬 Presenter Note <span>▼</span></button>
+          <div class="pn-body">The AI cross-references 4 external data sources in one call — motor vehicle registry, transit routes, geographic distance, and employment pattern history. No human could do this check in 2 seconds.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UC3: FRAUD RING -->
+  <div id="uc-2" class="uc-panel">
+    <div class="algo-badge-row">
+      <span class="algo-badge badge-gnn">Graph Neural Network</span>
+      <span class="algo-badge badge-rule">Network Analysis</span>
+    </div>
+    <div class="uc-grid">
+      <div class="uc-col">
+        <div class="uc-col-title">Claim Data</div>
+        <div class="form-field" id="uc2-f-employer"><label>Employer</label><div class="fval">Maple Ridge Contracting Inc. (BN: 12345 6789 RT0001)</div></div>
+        <div class="form-field" id="uc2-f-regdate"><label>Business Registration Date</label><div class="fval">March 1, 2024</div></div>
+        <div class="form-field" id="uc2-f-addr"><label>Business Address</label><div class="fval">45 Residential Lane, Brampton, ON (residential)</div></div>
+        <div class="form-field" id="uc2-f-employees"><label>Number of Employees</label><div class="fval">12</div></div>
+        <div class="form-field" id="uc2-f-layoff"><label>All Laid Off</label><div class="fval">September 6, 2024 (same date)</div></div>
+        <div class="form-field"><label>Avg Employment Duration</label><div class="fval">12.4 weeks</div></div>
+        <div class="form-field" id="uc2-f-roe"><label>ROE Submission</label><div class="fval">All 12 ROEs submitted same day</div></div>
+        <div class="form-field" id="uc2-f-hours"><label>Insurable Hours (all)</label><div class="fval">420–425 hrs each</div></div>
+        <div class="form-field" id="uc2-f-cluster"><label>Graph Connections</label><div class="fval">6 of 12 employees share same last name or address</div></div>
+        <!-- Mini network SVG -->
+        <div class="mini-graph">
+          <svg width="200" height="160" viewBox="0 0 200 160" aria-label="Fraud ring network graph">
+            <defs><marker id="arr" markerWidth="6" markerHeight="6" refX="3" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#94a3b8"/></marker></defs>
+            <!-- employer hub -->
+            <circle cx="100" cy="80" r="16" fill="#1e3a5f" stroke="#fff" stroke-width="2"/>
+            <text x="100" y="85" text-anchor="middle" fill="#fff" font-size="8" font-weight="bold">EMPLOYER</text>
+            <!-- normal employees -->
+            <circle cx="30" cy="20" r="9" fill="#64748b"/><line x1="39" y1="27" x2="87" y2="68" stroke="#94a3b8" stroke-width="1.5"/>
+            <circle cx="80" cy="15" r="9" fill="#64748b"/><line x1="83" y1="24" x2="96" y2="64" stroke="#94a3b8" stroke-width="1.5"/>
+            <circle cx="140" cy="15" r="9" fill="#64748b"/><line x1="134" y1="23" x2="108" y2="66" stroke="#94a3b8" stroke-width="1.5"/>
+            <circle cx="185" cy="35" r="9" fill="#64748b"/><line x1="178" y1="41" x2="118" y2="73" stroke="#94a3b8" stroke-width="1.5"/>
+            <circle cx="185" cy="80" r="9" fill="#64748b"/><line x1="176" y1="80" x2="116" y2="80" stroke="#94a3b8" stroke-width="1.5"/>
+            <circle cx="170" cy="135" r="9" fill="#64748b"/><line x1="164" y1="128" x2="115" y2="92" stroke="#94a3b8" stroke-width="1.5"/>
+            <!-- flagged family cluster -->
+            <circle cx="30" cy="80" r="9" fill="#dc2626" stroke="#fff" stroke-width="1.5"/><line x1="39" y1="80" x2="84" y2="80" stroke="#dc2626" stroke-width="2"/>
+            <circle cx="15" cy="50" r="9" fill="#dc2626" stroke="#fff" stroke-width="1.5"/><line x1="24" y1="54" x2="86" y2="73" stroke="#dc2626" stroke-width="2"/>
+            <circle cx="15" cy="110" r="9" fill="#dc2626" stroke="#fff" stroke-width="1.5"/><line x1="24" y1="108" x2="86" y2="87" stroke="#dc2626" stroke-width="2"/>
+            <circle cx="50" cy="135" r="9" fill="#dc2626" stroke="#fff" stroke-width="1.5"/><line x1="57" y1="128" x2="90" y2="93" stroke="#dc2626" stroke-width="2"/>
+            <circle cx="90" cy="145" r="9" fill="#dc2626" stroke="#fff" stroke-width="1.5"/><line x1="91" y1="136" x2="97" y2="96" stroke="#dc2626" stroke-width="2"/>
+            <circle cx="130" cy="145" r="9" fill="#dc2626" stroke="#fff" stroke-width="1.5"/><line x1="125" y1="137" x2="106" y2="96" stroke="#dc2626" stroke-width="2"/>
+            <text x="100" y="158" text-anchor="middle" fill="#dc2626" font-size="8" font-weight="bold">● Family/Address Cluster</text>
+          </svg>
+        </div>
+        <div class="footnote">Data sources: Corporations Canada, CRA Business Registry, EI ROE Web, Graph DB (Neo4j)</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">AI Processing</div>
+        <button class="run-btn" onclick="runDetection(2)" id="run-btn-2">▶ Run Detection</button>
+        <div id="uc2-steps">
+          <div class="step-item" id="uc2-s0"><div class="step-dot"></div><div class="step-text">Build employer graph → <strong>12 claimants → Maple Ridge Contracting</strong> ⚠️</div></div>
+          <div class="step-item" id="uc2-s1"><div class="step-dot"></div><div class="step-text">Community detection → <strong>6 claimants share residential address cluster</strong> 🚨</div></div>
+          <div class="step-item" id="uc2-s2"><div class="step-dot"></div><div class="step-text">Employer metrics → <strong>Turnover rate: 100% in 6 months</strong> 🚨</div></div>
+          <div class="step-item" id="uc2-s3"><div class="step-dot"></div><div class="step-text">ROE timing analysis → <strong>All 12 ROEs filed same day, minutes apart</strong> 🚨</div></div>
+          <div class="step-item" id="uc2-s4"><div class="step-dot"></div><div class="step-text">Business registry check → <strong>Company registered 6 months ago, residential address</strong> 🚨</div></div>
+          <div class="step-item" id="uc2-s5"><div class="step-dot"></div><div class="step-text">Hours pattern → <strong>All employees: 420–425 hours (minimum clustering)</strong> 🚨</div></div>
+          <div class="step-item" id="uc2-s6"><div class="step-dot"></div><div class="step-text">Risk score computed → <strong>Fraud ring score: 94/100</strong></div></div>
+        </div>
+        <div class="footnote" style="margin-top:16px;">Algorithm: GNN Community Detection → ROE Timing → Business Registry → Hours Pattern Analysis</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">Detection Result</div>
+        <div class="score-container">
+          <div class="score-circle" id="uc2-circle"><div class="score-num" id="uc2-score">0</div><div class="score-label" id="uc2-level">—</div></div>
+          <div id="uc2-risk-badge"></div>
+        </div>
+        <div id="uc2-indicators">
+          <div class="indicator-card ind-critical" id="uc2-i0">
+            <div class="ind-title">🚨 Shell Employer Pattern <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">Business at residential address, registered 6 months before mass layoff</div>
+          </div>
+          <div class="indicator-card ind-critical" id="uc2-i1">
+            <div class="ind-title">🚨 Coordinated Layoff <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">12 employees laid off same date, all ROEs filed within minutes</div>
+          </div>
+          <div class="indicator-card ind-critical" id="uc2-i2">
+            <div class="ind-title">🚨 Identity Cluster <span class="algo-badge badge-gnn" style="font-size:.65rem;padding:1px 6px;">GNN</span></div>
+            <div class="ind-desc">6/12 claimants share address or family relationships</div>
+          </div>
+          <div class="indicator-card ind-high" id="uc2-i3">
+            <div class="ind-title">🚨 Hours Gaming <span class="algo-badge badge-ml" style="font-size:.65rem;padding:1px 6px;">ML</span></div>
+            <div class="ind-desc">All employees at exact minimum threshold (420–425 hrs)</div>
+          </div>
+        </div>
+        <div class="rec-box" id="uc2-rec" style="display:none;background:#991b1b;">🚨 ESCALATE — Refer to Special Investigation Unit</div>
+        <div class="presenter-note">
+          <button class="pn-toggle" onclick="toggleNote(this)" aria-expanded="false">💬 Presenter Note <span>▼</span></button>
+          <div class="pn-body">Graph Neural Networks detect what no rule can: the hidden network connecting 12 people to a shell company. This is a coordinated fraud ring. The AI flags it as CRITICAL and triggers immediate escalation.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UC4: HISTORY MISMATCH -->
+  <div id="uc-3" class="uc-panel">
+    <div class="algo-badge-row">
+      <span class="algo-badge badge-llm">LLM Consistency Analysis</span>
+      <span class="algo-badge badge-rule">Rule Engine</span>
+    </div>
+    <div class="uc-grid">
+      <div class="uc-col">
+        <div class="uc-col-title">Claim Data — ROE vs. CRA Cross-Reference</div>
+        <table class="comp-table">
+          <thead><tr><th>Field</th><th>ROE Declaration</th><th>CRA T4 / External</th></tr></thead>
+          <tbody>
+            <tr class="match"><td>Employer</td><td>Sunrise Tech Solutions</td><td>Sunrise Tech Solutions</td></tr>
+            <tr class="match"><td>Start Date</td><td>March 1, 2023</td><td>March 1, 2023</td></tr>
+            <tr class="match"><td>End Date</td><td>Dec 15, 2023</td><td>Dec 15, 2023</td></tr>
+            <tr class="mismatch" id="uc3-f-earn"><td>Insurable Earnings</td><td>$62,400</td><td>$41,200 ⬅ MISMATCH</td></tr>
+            <tr class="mismatch" id="uc3-f-title"><td>Job Title</td><td>Software Developer</td><td>Data Entry Clerk ⬅ MISMATCH</td></tr>
+            <tr class="mismatch" id="uc3-f-noc"><td>NOC Code</td><td>21231 (SW Dev)</td><td>14100 (Data Entry) ⬅ MISMATCH</td></tr>
+            <tr class="mismatch" id="uc3-f-sep"><td>Reason for Sep.</td><td>Shortage of work</td><td>Employment continued per CRA ⬅ MISMATCH</td></tr>
+          </tbody>
+        </table>
+        <div class="form-section-label" style="margin-top:14px;">Employment Overlap Detected</div>
+        <div class="form-field" id="uc3-f-overlap"><label>Concurrent Employment</label><div class="fval" style="background:var(--amber-light);border-color:var(--amber);">BlueSky Media — Jan 2023–Apr 2023 (OVERLAPS claim period)</div></div>
+        <div class="footnote">Data sources: EI ROE Web, CRA T4 Slips, NOC Code Database, Provincial Employment Records</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">AI Processing</div>
+        <button class="run-btn" onclick="runDetection(3)" id="run-btn-3">▶ Run Detection</button>
+        <div id="uc3-steps">
+          <div class="step-item" id="uc3-s0"><div class="step-dot"></div><div class="step-text">Load ROE declaration → <strong>Earnings: $62,400, NOC: 21231</strong> ✓</div></div>
+          <div class="step-item" id="uc3-s1"><div class="step-dot"></div><div class="step-text">Cross-reference CRA T4 → <strong>Actual earnings: $41,200 — GAP: $21,200</strong> 🚨</div></div>
+          <div class="step-item" id="uc3-s2"><div class="step-dot"></div><div class="step-text">NOC code validation → <strong>ROE says SW Developer, T4 employer category: Administrative</strong> 🚨</div></div>
+          <div class="step-item" id="uc3-s3"><div class="step-dot"></div><div class="step-text">LLM narrative analysis → <strong>"Shortage of work contradicts CRA records showing continued employment"</strong> 🚨</div></div>
+          <div class="step-item" id="uc3-s4"><div class="step-dot"></div><div class="step-text">Overlap detection → <strong>Employment at BlueSky Media overlaps this claim period</strong> 🚨</div></div>
+          <div class="step-item" id="uc3-s5"><div class="step-dot"></div><div class="step-text">Risk score computed → <strong>Inconsistency score: 76/100</strong></div></div>
+        </div>
+        <div class="footnote" style="margin-top:16px;">Algorithm: CRA T4 Cross-Reference → LLM Narrative Analysis → NOC Validation → Overlap Detection</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">Detection Result</div>
+        <div class="score-container">
+          <div class="score-circle" id="uc3-circle"><div class="score-num" id="uc3-score">0</div><div class="score-label" id="uc3-level">—</div></div>
+          <div id="uc3-risk-badge"></div>
+        </div>
+        <div id="uc3-indicators">
+          <div class="indicator-card ind-critical" id="uc3-i0">
+            <div class="ind-title">🚨 Earnings Misrepresentation <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">ROE earnings $21,200 higher than CRA T4 records</div>
+          </div>
+          <div class="indicator-card ind-high" id="uc3-i1">
+            <div class="ind-title">🚨 Overlapping Employment <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">Concurrent employment at 2 employers during claimed period</div>
+          </div>
+          <div class="indicator-card ind-high" id="uc3-i2">
+            <div class="ind-title">⚠️ Job Title / NOC Mismatch <span class="algo-badge badge-llm" style="font-size:.65rem;padding:1px 6px;">LLM</span></div>
+            <div class="ind-desc">Declared role inconsistent with tax records and employer category</div>
+          </div>
+          <div class="indicator-card ind-medium" id="uc3-i3">
+            <div class="ind-title">⚠️ Separation Narrative Inconsistency <span class="algo-badge badge-llm" style="font-size:.65rem;padding:1px 6px;">LLM</span></div>
+            <div class="ind-desc">"Shortage of work" claim contradicts continued employment data</div>
+          </div>
+        </div>
+        <div class="rec-box" id="uc3-rec" style="display:none;">🏷️ FLAG_FOR_REVIEW</div>
+        <div class="presenter-note">
+          <button class="pn-toggle" onclick="toggleNote(this)" aria-expanded="false">💬 Presenter Note <span>▼</span></button>
+          <div class="pn-body">The LLM reads the separation narrative and compares it to hard data from CRA. It doesn't just check numbers — it understands context. A claim that "looks clean" in isolation is exposed when cross-referenced.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UC5: DOCUMENT FORGERY -->
+  <div id="uc-4" class="uc-panel">
+    <div class="algo-badge-row">
+      <span class="algo-badge badge-layoutlm">LayoutLMv3</span>
+      <span class="algo-badge badge-forensic">Forensic OCR Analysis</span>
+    </div>
+    <div class="uc-grid">
+      <div class="uc-col">
+        <div class="uc-col-title">Submitted Document</div>
+        <div class="roe-doc" id="uc4-doc">
+          <div class="roe-header">�� RECORD OF EMPLOYMENT — Service Canada</div>
+          <div class="roe-body">
+            <div class="roe-field"><div class="roe-key">Employer:</div><div class="roe-val">Westview Construction Corp.</div></div>
+            <div class="roe-field"><div class="roe-key">Employee Name:</div><div class="roe-val">Michael D. Thornton</div></div>
+            <div class="roe-field"><div class="roe-key">SIN:</div><div class="roe-val">[PROTECTED]</div></div>
+            <div class="roe-field"><div class="roe-key">First Day Worked:</div><div class="roe-val">June 1, 2024</div></div>
+            <div class="roe-field"><div class="roe-key">Last Day Paid:</div><div class="roe-val">September 30, 2024</div></div>
+            <div class="roe-field"><div class="roe-key">Total Insurable Hours:</div><div class="roe-val">830 hours</div></div>
+            <div class="roe-field"><div class="roe-key">Total Ins. Earnings:</div><div class="roe-val">$29,050.00</div></div>
+            <div class="roe-field"><div class="roe-key">Reason for Issuance:</div><div class="roe-val">A — Shortage of Work</div></div>
+            <div class="roe-field"><div class="roe-key">Issue Date (stamp):</div><div class="roe-val">October 1, 2024</div></div>
+            <div class="roe-field"><div class="roe-key">Employer Signature:</div><div class="roe-val" style="font-style:italic;color:var(--text-dim);">[Authorized Signatory]</div></div>
+          </div>
+          <!-- Annotations shown after run — stacked below the document, not positioned absolutely -->
+          <div class="roe-annotations-list" id="uc4-annotations-list">
+            <div class="roe-annotation ann-red" id="uc4-ann0" style="display:none;">🚨 Metadata: File created Oct 3 — 2 days AFTER issue date stamp</div>
+            <div class="roe-annotation ann-red" id="uc4-ann1" style="display:none;">🚨 Font: Arial 11pt — employer uses Calibri 10pt in all 47 authentic ROEs</div>
+            <div class="roe-annotation ann-amber" id="uc4-ann2" style="display:none;">⚠️ Math: 830hrs × $35/hr = $29,050 ✓ (but daily rate is inconsistent)</div>
+            <div class="roe-annotation ann-red" id="uc4-ann3" style="display:none;">🚨 Digital signature: Hash mismatch vs employer certificate</div>
+          </div>
+        </div>
+        <div class="footnote" style="margin-top:16px;">Data sources: Service Canada ROE Template DB, PDF Metadata, Employer Signature Registry, OCR Engine</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">AI Processing</div>
+        <button class="run-btn" onclick="runDetection(4)" id="run-btn-4">▶ Run Detection</button>
+        <div id="uc4-steps">
+          <div class="step-item" id="uc4-s0"><div class="step-dot"></div><div class="step-text">OCR extraction → <strong>All fields extracted successfully</strong> ✓</div></div>
+          <div class="step-item" id="uc4-s1"><div class="step-dot"></div><div class="step-text">Metadata analysis → <strong>PDF created: Oct 3, 2024. Issue date on form: Oct 1, 2024</strong> 🚨</div></div>
+          <div class="step-item" id="uc4-s2"><div class="step-dot"></div><div class="step-text">Font fingerprinting → <strong>Document uses Arial; employer's 47 authentic ROEs use Calibri</strong> 🚨</div></div>
+          <div class="step-item" id="uc4-s3"><div class="step-dot"></div><div class="step-text">Digital signature check → <strong>Employer certificate hash mismatch</strong> 🚨</div></div>
+          <div class="step-item" id="uc4-s4"><div class="step-dot"></div><div class="step-text">LLM content analysis → <strong>"Termination notes do not match employer's standard template language"</strong> ⚠️</div></div>
+          <div class="step-item" id="uc4-s5"><div class="step-dot"></div><div class="step-text">Cross-validate employer records → <strong>Employee not found in employer's payroll database</strong> 🚨</div></div>
+          <div class="step-item" id="uc4-s6"><div class="step-dot"></div><div class="step-text">Risk score computed → <strong>Forgery probability: 91/100</strong></div></div>
+        </div>
+        <div class="footnote" style="margin-top:16px;">Algorithm: LayoutLMv3 → PDF Forensics → Font Fingerprint → Employer Registry Validation</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">Detection Result</div>
+        <div class="score-container">
+          <div class="score-circle" id="uc4-circle"><div class="score-num" id="uc4-score">0</div><div class="score-label" id="uc4-level">—</div></div>
+          <div id="uc4-risk-badge"></div>
+        </div>
+        <div id="uc4-indicators">
+          <div class="indicator-card ind-critical" id="uc4-i0">
+            <div class="ind-title">🚨 Document Metadata Inconsistency <span class="algo-badge badge-forensic" style="font-size:.65rem;padding:1px 6px;">FORENSIC</span></div>
+            <div class="ind-desc">File created 2 days after purported issue date</div>
+          </div>
+          <div class="indicator-card ind-critical" id="uc4-i1">
+            <div class="ind-title">🚨 Font/Formatting Mismatch <span class="algo-badge badge-layoutlm" style="font-size:.65rem;padding:1px 6px;">LayoutLM</span></div>
+            <div class="ind-desc">Document typeface differs from all verified employer ROEs</div>
+          </div>
+          <div class="indicator-card ind-critical" id="uc4-i2">
+            <div class="ind-title">🚨 Digital Signature Invalid <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">Certificate hash does not match employer's registered signature</div>
+          </div>
+          <div class="indicator-card ind-critical" id="uc4-i3">
+            <div class="ind-title">🚨 Employer Record Missing <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">Employee not found in employer's payroll records</div>
+          </div>
+          <div class="indicator-card ind-medium" id="uc4-i4">
+            <div class="ind-title">⚠️ Template Language Anomaly <span class="algo-badge badge-llm" style="font-size:.65rem;padding:1px 6px;">LLM</span></div>
+            <div class="ind-desc">Narrative language inconsistent with employer's communication style</div>
+          </div>
+        </div>
+        <div class="rec-box" id="uc4-rec" style="display:none;background:#991b1b;">🚨 ESCALATE — Suspected Fabricated Document</div>
+        <div class="presenter-note">
+          <button class="pn-toggle" onclick="toggleNote(this)" aria-expanded="false">💬 Presenter Note <span>▼</span></button>
+          <div class="pn-body">LayoutLM was trained on thousands of authentic ROEs. It knows what a real Service Canada document looks like — right down to the font. Forgeries that fool the human eye don't fool the AI.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- UC6: REGIONAL ANALYSIS -->
+  <div id="uc-5" class="uc-panel">
+    <div class="algo-badge-row">
+      <span class="algo-badge badge-ts">Time Series Analysis</span>
+      <span class="algo-badge badge-ml">Statistical Anomaly Detection</span>
+    </div>
+    <div class="uc-grid">
+      <div class="uc-col">
+        <div class="uc-col-title">Claim Data</div>
+        <div class="form-field"><label>ROE Number</label><div class="fval">ROE-2024-AB-009341</div></div>
+        <div class="form-field"><label>Claimant Province</label><div class="fval">Alberta</div></div>
+        <div class="form-field"><label>Economic Region</label><div class="fval">Calgary CMA</div></div>
+        <div class="form-field"><label>Occupation (NOC)</label><div class="fval">72010 — Heavy Equipment Operator</div></div>
+        <div class="form-field"><label>Claim Period</label><div class="fval">September–December 2024</div></div>
+        <div class="form-field"><label>Weekly Benefit Rate</label><div class="fval">$668/week</div></div>
+        <div class="form-field" id="uc5-f-unemp"><label>Regional Unemployment (Sept 2024)</label><div class="fval">4.1% (national avg: 6.3%)</div></div>
+        <div class="form-field" id="uc5-f-jobs"><label>Active Job Postings (NOC 72010)</label><div class="fval">847 active postings (Sept 2024)</div></div>
+        <div class="form-field" id="uc5-f-season"><label>Industry Seasonality</label><div class="fval">Construction — Peak season (Sept–Nov)</div></div>
+        <div class="form-field" id="uc5-f-prev"><label>Previous Claims (same pattern)</label><div class="fval">Sept–Dec 2022, Sept–Dec 2023</div></div>
+        <!-- Sparkline chart -->
+        <div class="spark-wrap">
+          <div class="spark-label">Calgary CMA Unemployment Rate — 12 Months</div>
+          <div class="spark-bars" id="uc5-sparkbars">
+            <div class="spark-bar" style="height:35%;" title="Oct 2023: 3.5%"></div>
+            <div class="spark-bar" style="height:38%;" title="Nov 2023: 3.8%"></div>
+            <div class="spark-bar" style="height:42%;" title="Dec 2023: 4.2%"></div>
+            <div class="spark-bar" style="height:40%;" title="Jan 2024: 4.0%"></div>
+            <div class="spark-bar" style="height:36%;" title="Feb 2024: 3.6%"></div>
+            <div class="spark-bar" style="height:34%;" title="Mar 2024: 3.4%"></div>
+            <div class="spark-bar" style="height:33%;" title="Apr 2024: 3.3%"></div>
+            <div class="spark-bar" style="height:35%;" title="May 2024: 3.5%"></div>
+            <div class="spark-bar" style="height:37%;" title="Jun 2024: 3.7%"></div>
+            <div class="spark-bar highlight" style="height:41%;" title="Jul 2024: 4.1%"></div>
+            <div class="spark-bar highlight" style="height:41%;" title="Aug 2024: 4.1%"></div>
+            <div class="spark-bar highlight" style="height:41%;" title="Sep 2024: 4.1% ← CLAIM PERIOD"></div>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:.65rem;color:var(--text-muted);margin-top:3px;"><span>Oct 2023</span><span style="color:var(--amber);font-weight:600;">← Claim Period (highlighted)</span><span>Sep 2024</span></div>
+        </div>
+        <div class="footnote">Data sources: Statistics Canada Labour Force Survey, Job Bank Canada API, ESDC Economic Regions, Seasonal Employment Pattern DB</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">AI Processing</div>
+        <button class="run-btn" onclick="runDetection(5)" id="run-btn-5">▶ Run Detection</button>
+        <div id="uc5-steps">
+          <div class="step-item" id="uc5-s0"><div class="step-dot"></div><div class="step-text">Regional unemployment lookup → <strong>Calgary CMA: 4.1% (Oct 2024)</strong> ⚠️</div></div>
+          <div class="step-item" id="uc5-s1"><div class="step-dot"></div><div class="step-text">Occupation demand check → <strong>847 active postings for NOC 72010 in region</strong> 🚨</div></div>
+          <div class="step-item" id="uc5-s2"><div class="step-dot"></div><div class="step-text">Industry seasonality check → <strong>Construction: peak season Sept–Nov in Alberta</strong> 🚨</div></div>
+          <div class="step-item" id="uc5-s3"><div class="step-dot"></div><div class="step-text">Time series comparison → <strong>Claim pattern: Sept–Dec 2022, 2023, 2024 — 3-year recurring cycle</strong> ⚠️</div></div>
+          <div class="step-item" id="uc5-s4"><div class="step-dot"></div><div class="step-text">Wage comparison → <strong>Previous earnings: $28.50/hr. Available jobs: $31.00–$38.50/hr</strong> 🚨</div></div>
+          <div class="step-item" id="uc5-s5"><div class="step-dot"></div><div class="step-text">Prophet forecast → <strong>Expected claim rate 0.8%; claimant rate 3× above statistical baseline</strong> ⚠️</div></div>
+          <div class="step-item" id="uc5-s6"><div class="step-dot"></div><div class="step-text">Risk score computed → <strong>Regional anomaly score: 65/100</strong></div></div>
+        </div>
+        <div class="footnote" style="margin-top:16px;">Algorithm: Stats Canada LFS → Job Bank API → Seasonal Pattern DB → Prophet Time Series Forecast</div>
+      </div>
+      <div class="uc-col">
+        <div class="uc-col-title">Detection Result</div>
+        <div class="score-container">
+          <div class="score-circle" id="uc5-circle"><div class="score-num" id="uc5-score">0</div><div class="score-label" id="uc5-level">—</div></div>
+          <div id="uc5-risk-badge"></div>
+        </div>
+        <div id="uc5-indicators">
+          <div class="indicator-card ind-high" id="uc5-i0">
+            <div class="ind-title">🚨 Claiming During Peak Demand <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">847 active job postings for claimant's occupation in claim region</div>
+          </div>
+          <div class="indicator-card ind-medium" id="uc5-i1">
+            <div class="ind-title">⚠️ Low Regional Unemployment <span class="algo-badge badge-ml" style="font-size:.65rem;padding:1px 6px;">ML</span></div>
+            <div class="ind-desc">Region unemployment (4.1%) is 35% below national average</div>
+          </div>
+          <div class="indicator-card ind-medium" id="uc5-i2">
+            <div class="ind-title">⚠️ Recurring Seasonal Pattern <span class="algo-badge badge-ts" style="font-size:.65rem;padding:1px 6px;">TIME-SERIES</span></div>
+            <div class="ind-desc">Identical Sept–Dec claim window for 3 consecutive years</div>
+          </div>
+          <div class="indicator-card ind-medium" id="uc5-i3">
+            <div class="ind-title">⚠️ Available Jobs Pay More <span class="algo-badge badge-rule" style="font-size:.65rem;padding:1px 6px;">RULE</span></div>
+            <div class="ind-desc">Active postings pay up to 35% above claimant's previous wage</div>
+          </div>
+        </div>
+        <div class="rec-box" id="uc5-rec" style="display:none;background:#92400e;">🏷️ FLAG_FOR_REVIEW</div>
+        <div class="presenter-note">
+          <button class="pn-toggle" onclick="toggleNote(this)" aria-expanded="false">💬 Presenter Note <span>▼</span></button>
+          <div class="pn-body">Statistics Canada data feeds the AI in real time. A claim that looks valid in isolation is suspicious when the AI knows there are 847 jobs available in the region — for that exact occupation, at that exact time.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div><!-- end use cases section -->
+
+<!-- ===== SECTION 4: GUIDED PITCH ===== -->
+<div id="sec-pitch" class="section">
+  <div class="pitch-hero">
+    <h2>Guided Executive Pitch</h2>
+    <p>A step-by-step walkthrough of the 6 fraud scenarios — with presenter talking points for each. Perfect for client leadership briefings.</p>
+    <button class="start-tour-btn" onclick="startTour()">Start the Guided Tour →</button>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;">
+      <div style="font-size:1.4rem;margin-bottom:8px;">🔁</div>
+      <div style="font-weight:700;color:var(--heading);margin-bottom:6px;">Step 1 — Repetitive Gaming</div>
+      <div style="font-size:.85rem;color:var(--text-dim);">Seasonal pattern detection, minimum hours gaming, LLM narrative matching</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;">
+      <div style="font-size:1.4rem;margin-bottom:8px;">📍</div>
+      <div style="font-weight:700;color:var(--heading);margin-bottom:6px;">Step 2 — Geographic Proof</div>
+      <div style="font-size:.85rem;color:var(--text-dim);">1,487 km commute, no vehicle, no transit — ghost employment exposed</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;">
+      <div style="font-size:1.4rem;margin-bottom:8px;">🕸️</div>
+      <div style="font-weight:700;color:var(--heading);margin-bottom:6px;">Step 3 — Organized Crime</div>
+      <div style="font-size:.85rem;color:var(--text-dim);">Graph AI uncovers shell employer with 12-person coordinated fraud ring</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;">
+      <div style="font-size:1.4rem;margin-bottom:8px;">📋</div>
+      <div style="font-weight:700;color:var(--heading);margin-bottom:6px;">Step 4 — Paper Trail Lies</div>
+      <div style="font-size:.85rem;color:var(--text-dim);">ROE vs CRA cross-reference reveals $21,200 earnings inflation</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;">
+      <div style="font-size:1.4rem;margin-bottom:8px;">📄</div>
+      <div style="font-weight:700;color:var(--heading);margin-bottom:6px;">Step 5 — Document AI</div>
+      <div style="font-size:.85rem;color:var(--text-dim);">Font fingerprinting and metadata forensics catch forged Service Canada ROE</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:20px;">
+      <div style="font-size:1.4rem;margin-bottom:8px;">📊</div>
+      <div style="font-weight:700;color:var(--heading);margin-bottom:6px;">Step 6 — Market Reality</div>
+      <div style="font-size:.85rem;color:var(--text-dim);">847 open jobs in exact region/occupation during claim period — real-time Stats Can data</div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== FLOATING TOUR CARD ===== -->
+<div id="tour-float" role="dialog" aria-modal="true" aria-label="Guided pitch tour">
+  <div class="tour-header">
+    <div>
+      <h3 id="tour-step-title">Loading...</h3>
+      <div class="tour-step-count" id="tour-step-count">Step 1 of 6</div>
+    </div>
+    <button class="tour-close" onclick="closeTour()" aria-label="Close tour">×</button>
+  </div>
+  <div class="tour-body">
+    <div id="tour-context" class="tour-step-context"></div>
+    <ul id="tour-points" class="tour-talking-points"></ul>
+    <div class="tour-dots" id="tour-dots"></div>
+    <div class="tour-footer">
+      <button class="tour-btn-back" id="tour-back-btn" onclick="tourBack()">← Back</button>
+      <button class="tour-btn-next" id="tour-next-btn" onclick="tourNext()">Next →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// =====================================================================
+// STATE
+// =====================================================================
+var currentSection = 'overview';
+var activeUseCase = 0;
+var tourOpen = false;
+var tourStep = 0;
+
+var TOUR_DATA = [
+  {
+    title: "The Challenge — Repetitive Gaming",
+    ucIndex: 0,
+    context: "A claimant files EI every January from the same employer with hours barely above the minimum threshold — for 3 consecutive years.",
+    points: [
+      "Legacy systems process each claim in isolation — no cross-year pattern visible.",
+      "The AI detects the repeating sequence, identical narrative, and minimum-hours clustering in under 2 seconds.",
+      "Explainable output means investigators immediately know WHY it was flagged, not just that it was."
+    ]
+  },
+  {
+    title: "Ghost Employment — Geographic Proof",
+    ucIndex: 1,
+    context: "A claimant in Surrey, BC claims employment in Prince Rupert — 1,487 km away — with no car and no transit route.",
+    points: [
+      "4 external data sources checked simultaneously: address DB, motor vehicle registry, transit routes, and cost analysis.",
+      "Flight cost ($480/wk) exceeds the weekly EI benefit ($380/wk) — economically impossible.",
+      "This single check, done manually, would take hours. The AI does it in milliseconds."
+    ]
+  },
+  {
+    title: "Organized Crime — Fraud Rings",
+    ucIndex: 2,
+    context: "12 employees of a 6-month-old company — at a residential address — all laid off the same day, all ROEs filed minutes apart.",
+    points: [
+      "Graph Neural Networks map the hidden family and address connections between 12 claimants.",
+      "No individual claim would trigger a rule — only the network pattern reveals the ring.",
+      "CRITICAL score (94/100) triggers automatic escalation to the Special Investigation Unit."
+    ]
+  },
+  {
+    title: "Paper Trail Lies — History Mismatch",
+    ucIndex: 3,
+    context: "An ROE declares $62,400 in earnings and a Software Developer title — but CRA T4 shows $41,200 and Data Entry Clerk.",
+    points: [
+      "The LLM reads the separation narrative and cross-checks it against CRA employment records.",
+      "Concurrent employment at a second employer during the claim period adds a second critical indicator.",
+      "A claim that looks clean in isolation is exposed when the full data picture is assembled."
+    ]
+  },
+  {
+    title: "Forgery at Scale — Document AI",
+    ucIndex: 4,
+    context: "A forged Service Canada ROE — visually convincing — is submitted for a claimant with no payroll record at the employer.",
+    points: [
+      "LayoutLMv3 was trained on thousands of authentic ROEs and knows the exact font, layout, and metadata patterns.",
+      "The PDF was created 2 days after the issue date stamped on the form — caught via metadata forensics.",
+      "The employer's digital signature hash doesn't match — a check no human would perform manually."
+    ]
+  },
+  {
+    title: "Market Reality — Regional AI",
+    ucIndex: 5,
+    context: "A Heavy Equipment Operator in Calgary claims EI during peak construction season while 847 jobs in that exact role sit unfilled.",
+    points: [
+      "Statistics Canada Labour Force Survey data feeds the AI in real time.",
+      "The time-series analysis reveals this is the third consecutive Sept–Dec claim — a statistically improbable pattern.",
+      "Available jobs pay 35% more than the claimant's prior wage — the economic case for work availability is overwhelming."
+    ]
+  }
+];
+
+// =====================================================================
+// NAVIGATION
+// =====================================================================
+function setSection(name) {
+  document.querySelectorAll('.section').forEach(function(el) { el.classList.remove('active'); });
+  document.querySelectorAll('.nav-btn').forEach(function(el) { el.classList.remove('active'); });
+  var sec = document.getElementById('sec-' + name);
+  if (sec) sec.classList.add('active');
+  var btnMap = {overview:'overview',architecture:'architecture',usecases:'usecases',pitch:'pitch'};
+  var btns = document.querySelectorAll('.nav-btn');
+  btns.forEach(function(b){
+    if(b.textContent.toLowerCase().replace(/\s/g,'').indexOf(name.toLowerCase().replace(/\s/g,'')) !== -1) b.classList.add('active');
+  });
+  currentSection = name;
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+// =====================================================================
+// USE CASES
+// =====================================================================
+function setUseCase(n) {
+  document.querySelectorAll('.uc-tab').forEach(function(t,i){
+    t.classList.toggle('active', i===n);
+    t.setAttribute('aria-selected', String(i===n));
+  });
+  document.querySelectorAll('.uc-panel').forEach(function(p,i){ p.classList.toggle('active', i===n); });
+  activeUseCase = n;
+}
+
+// =====================================================================
+// DETECTION ANIMATION
+// =====================================================================
+var ucConfig = [
+  { score:78, level:'HIGH', fields:['uc0-f-employer','uc0-f-hours','uc0-f-prev1','uc0-f-prev2','uc0-f-prev3'], steps:6, indicators:3, rec:'uc0-rec' },
+  { score:82, level:'HIGH', fields:['uc1-f-addr','uc1-f-work','uc1-f-vehicle','uc1-f-transit'], steps:6, indicators:3, rec:'uc1-rec' },
+  { score:94, level:'CRITICAL', fields:['uc2-f-employer','uc2-f-regdate','uc2-f-addr','uc2-f-layoff','uc2-f-roe','uc2-f-hours','uc2-f-cluster'], steps:7, indicators:4, rec:'uc2-rec' },
+  { score:76, level:'HIGH', fields:['uc3-f-earn','uc3-f-title','uc3-f-noc','uc3-f-sep','uc3-f-overlap'], steps:6, indicators:4, rec:'uc3-rec' },
+  { score:91, level:'CRITICAL', fields:[], steps:7, indicators:5, rec:'uc4-rec', docAnnotations:['uc4-ann0','uc4-ann1','uc4-ann2','uc4-ann3'] },
+  { score:65, level:'MEDIUM', fields:['uc5-f-unemp','uc5-f-jobs','uc5-f-season','uc5-f-prev'], steps:7, indicators:4, rec:'uc5-rec' }
+];
+
+var stepDotClass = {
+  '🚨': 'red',
+  '⚠️': 'amber',
+  '✓': 'green'
+};
+
+function getStepDotClass(text) {
+  if (text.indexOf('🚨') !== -1) return 'red';
+  if (text.indexOf('⚠️') !== -1) return 'amber';
+  if (text.indexOf('✓') !== -1 && text.indexOf('🚨') === -1) return 'green';
+  return 'amber';
+}
+
+function resetPanel(n) {
+  var cfg = ucConfig[n];
+  var prefix = 'uc' + n;
+  // reset fields
+  cfg.fields.forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) { el.classList.remove('highlight-amber','highlight-red'); }
+  });
+  // reset steps
+  for (var i = 0; i < cfg.steps; i++) {
+    var step = document.getElementById(prefix + '-s' + i);
+    if (step) {
+      step.classList.remove('visible');
+      var dot = step.querySelector('.step-dot');
+      if (dot) { dot.className = 'step-dot'; }
+    }
+  }
+  // reset indicators
+  for (var i = 0; i < cfg.indicators; i++) {
+    var ind = document.getElementById(prefix + '-i' + i);
+    if (ind) ind.classList.remove('visible');
+  }
+  // reset score
+  var scoreEl = document.getElementById(prefix + '-score');
+  var circleEl = document.getElementById(prefix + '-circle');
+  var levelEl = document.getElementById(prefix + '-level');
+  var badgeEl = document.getElementById(prefix + '-risk-badge');
+  if (scoreEl) scoreEl.textContent = '0';
+  if (circleEl) circleEl.className = 'score-circle';
+  if (levelEl) levelEl.textContent = '—';
+  if (badgeEl) badgeEl.innerHTML = '';
+  // reset rec
+  var recEl = document.getElementById(cfg.rec);
+  if (recEl) recEl.style.display = 'none';
+  // reset doc annotations
+  if (cfg.docAnnotations) {
+    cfg.docAnnotations.forEach(function(id) {
+      var a = document.getElementById(id);
+      if (a) a.style.display = 'none';
+    });
+  }
+  // reset button
+  var btn = document.getElementById('run-btn-' + n);
+  if (btn) { btn.disabled = false; btn.textContent = '▶ Run Detection'; }
+}
+
+function runDetection(n) {
+  resetPanel(n);
+  var cfg = ucConfig[n];
+  var prefix = 'uc' + n;
+  var btn = document.getElementById('run-btn-' + n);
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Analyzing...'; }
+
+  // Step 1: highlight fields after 200ms
+  setTimeout(function() {
+    cfg.fields.forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) {
+        var cls = (id.indexOf('employer') !== -1 || id.indexOf('addr') !== -1 || id.indexOf('hours') !== -1 || id.indexOf('regdate') !== -1 || id.indexOf('layoff') !== -1 || id.indexOf('roe') !== -1 || id.indexOf('cluster') !== -1 || id.indexOf('title') !== -1 || id.indexOf('noc') !== -1 || id.indexOf('sep') !== -1 || id.indexOf('overlap') !== -1 || id.indexOf('earn') !== -1 || id.indexOf('season') !== -1 || id.indexOf('jobs') !== -1) ? 'highlight-red' : 'highlight-amber';
+        el.classList.add(cls);
+      }
+    });
+  }, 200);
+
+  // Step 2: animate processing steps
+  for (var i = 0; i < cfg.steps; i++) {
+    (function(idx) {
+      setTimeout(function() {
+        var step = document.getElementById(prefix + '-s' + idx);
+        if (step) {
+          step.classList.add('visible');
+          var dot = step.querySelector('.step-dot');
+          var text = step.querySelector('.step-text');
+          if (dot && text) {
+            dot.classList.add(getStepDotClass(text.textContent));
+          }
+        }
+        // doc annotations for UC5
+        if (cfg.docAnnotations && idx > 0 && idx-1 < cfg.docAnnotations.length) {
+          var ann = document.getElementById(cfg.docAnnotations[idx-1]);
+          if (ann) ann.style.display = 'block';
+        }
+      }, 400 + idx * 600);
+    })(i);
+  }
+
+  // Step 3: animate score after steps complete
+  var scoreDelay = 400 + cfg.steps * 600 + 200;
+  setTimeout(function() {
+    var scoreEl = document.getElementById(prefix + '-score');
+    var circleEl = document.getElementById(prefix + '-circle');
+    var levelEl = document.getElementById(prefix + '-level');
+    var badgeEl = document.getElementById(prefix + '-risk-badge');
+    var target = cfg.score;
+    var levelStr = cfg.level;
+    var levelClass = { LOW:'low', MEDIUM:'medium', HIGH:'high', CRITICAL:'critical' }[levelStr] || 'high';
+    var levelColor = { LOW:'#059669', MEDIUM:'#d97706', HIGH:'#ea580c', CRITICAL:'#dc2626' }[levelStr];
+    if (circleEl) circleEl.classList.add(levelClass);
+    if (levelEl) { levelEl.textContent = levelStr; levelEl.style.color = levelColor; }
+    if (badgeEl) badgeEl.innerHTML = '<div class="risk-badge risk-' + levelStr + '">' + levelStr + ' RISK</div>';
+    // count up animation
+    var start = null;
+    var duration = 1200;
+    function step(ts) {
+      if (!start) start = ts;
+      var progress = Math.min((ts - start) / duration, 1);
+      var ease = 1 - Math.pow(1 - progress, 3);
+      var current = Math.round(ease * target);
+      if (scoreEl) scoreEl.textContent = current;
+      if (progress < 1) requestAnimationFrame(step);
+      else if (scoreEl) scoreEl.textContent = target;
+    }
+    requestAnimationFrame(step);
+  }, scoreDelay);
+
+  // Step 4: show indicators
+  for (var i = 0; i < cfg.indicators; i++) {
+    (function(idx) {
+      setTimeout(function() {
+        var ind = document.getElementById(prefix + '-i' + idx);
+        if (ind) ind.classList.add('visible');
+      }, scoreDelay + 300 + idx * 250);
+    })(i);
+  }
+
+  // Step 5: show recommendation
+  setTimeout(function() {
+    var recEl = document.getElementById(cfg.rec);
+    if (recEl) recEl.style.display = 'block';
+    var btn2 = document.getElementById('run-btn-' + n);
+    if (btn2) { btn2.disabled = false; btn2.textContent = '↺ Reset & Run Again'; btn2.onclick = function(){ runDetection(n); }; }
+  }, scoreDelay + 300 + cfg.indicators * 250 + 300);
+}
+
+// =====================================================================
+// ARCHITECTURE TOGGLE
+// =====================================================================
+function setArchView(v) {
+  var bizBtn = document.getElementById('arch-biz-btn');
+  var techBtn = document.getElementById('arch-tech-btn');
+  var bizDiag = document.getElementById('arch-biz');
+  var techDiag = document.getElementById('arch-tech');
+  if (v === 'biz') {
+    bizBtn.classList.add('active'); techBtn.classList.remove('active');
+    bizBtn.setAttribute('aria-pressed','true'); techBtn.setAttribute('aria-pressed','false');
+    bizDiag.style.display = ''; techDiag.style.display = 'none';
+  } else {
+    techBtn.classList.add('active'); bizBtn.classList.remove('active');
+    techBtn.setAttribute('aria-pressed','true'); bizBtn.setAttribute('aria-pressed','false');
+    techDiag.style.display = ''; bizDiag.style.display = 'none';
+  }
+}
+
+// =====================================================================
+// PRESENTER NOTES
+// =====================================================================
+function toggleNote(btn) {
+  var body = btn.nextElementSibling;
+  var open = body.classList.toggle('open');
+  btn.setAttribute('aria-expanded', open);
+  btn.querySelector('span').textContent = open ? '▲' : '▼';
+}
+
+// =====================================================================
+// GUIDED TOUR
+// =====================================================================
+function buildTourDots() {
+  var dotsEl = document.getElementById('tour-dots');
+  if (!dotsEl) return;
+  dotsEl.innerHTML = '';
+  for (var i = 0; i < TOUR_DATA.length; i++) {
+    var d = document.createElement('div');
+    d.className = 'tour-dot' + (i === tourStep ? ' active' : '');
+    dotsEl.appendChild(d);
+  }
+}
+
+function renderTourStep() {
+  var data = TOUR_DATA[tourStep];
+  document.getElementById('tour-step-title').textContent = data.title;
+  document.getElementById('tour-step-count').textContent = 'Step ' + (tourStep+1) + ' of ' + TOUR_DATA.length;
+  document.getElementById('tour-context').textContent = data.context;
+  var ul = document.getElementById('tour-points');
+  ul.innerHTML = '';
+  data.points.forEach(function(p) {
+    var li = document.createElement('li');
+    li.textContent = p;
+    ul.appendChild(li);
+  });
+  document.getElementById('tour-back-btn').disabled = tourStep === 0;
+  document.getElementById('tour-next-btn').textContent = tourStep === TOUR_DATA.length - 1 ? '✓ Finish Tour' : 'Next →';
+  buildTourDots();
+  // navigate to use case and trigger detection
+  setSection('usecases');
+  setUseCase(data.ucIndex);
+  setTimeout(function() { runDetection(data.ucIndex); }, 400);
+}
+
+function startTour() {
+  tourStep = 0;
+  tourOpen = true;
+  document.getElementById('tour-float').classList.add('open');
+  renderTourStep();
+}
+
+function closeTour() {
+  tourOpen = false;
+  document.getElementById('tour-float').classList.remove('open');
+}
+
+function tourNext() {
+  if (tourStep < TOUR_DATA.length - 1) {
+    tourStep++;
+    renderTourStep();
+  } else {
+    closeTour();
+  }
+}
+
+function tourBack() {
+  if (tourStep > 0) {
+    tourStep--;
+    renderTourStep();
+  }
+}
+
+// =====================================================================
+// DRAGGABLE TOUR PANEL
+// =====================================================================
+(function() {
+  var panel = document.getElementById('tour-float');
+  var header = panel ? panel.querySelector('.tour-header') : null;
+  if (!header) return;
+  var dragging = false;
+  var startX, startY, origLeft, origTop;
+
+  function getPos() {
+    var rect = panel.getBoundingClientRect();
+    return { left: rect.left, top: rect.top };
+  }
+
+  header.addEventListener('mousedown', function(e) {
+    if (e.target.classList.contains('tour-close')) return;
+    dragging = true;
+    var pos = getPos();
+    // Switch from bottom/right anchoring to top/left for drag
+    panel.style.bottom = 'auto';
+    panel.style.right = 'auto';
+    panel.style.left = pos.left + 'px';
+    panel.style.top = pos.top + 'px';
+    startX = e.clientX;
+    startY = e.clientY;
+    origLeft = pos.left;
+    origTop = pos.top;
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    var dx = e.clientX - startX;
+    var dy = e.clientY - startY;
+    var newLeft = Math.max(0, Math.min(origLeft + dx, window.innerWidth - panel.offsetWidth));
+    var newTop = Math.max(0, Math.min(origTop + dy, window.innerHeight - panel.offsetHeight));
+    panel.style.left = newLeft + 'px';
+    panel.style.top = newTop + 'px';
+  });
+
+  document.addEventListener('mouseup', function() {
+    dragging = false;
+  });
+
+  // Touch support
+  header.addEventListener('touchstart', function(e) {
+    if (e.target.classList.contains('tour-close')) return;
+    var touch = e.touches[0];
+    dragging = true;
+    var pos = getPos();
+    panel.style.bottom = 'auto';
+    panel.style.right = 'auto';
+    panel.style.left = pos.left + 'px';
+    panel.style.top = pos.top + 'px';
+    startX = touch.clientX;
+    startY = touch.clientY;
+    origLeft = pos.left;
+    origTop = pos.top;
+  }, { passive: true });
+
+  document.addEventListener('touchmove', function(e) {
+    if (!dragging) return;
+    var touch = e.touches[0];
+    var dx = touch.clientX - startX;
+    var dy = touch.clientY - startY;
+    var newLeft = Math.max(0, Math.min(origLeft + dx, window.innerWidth - panel.offsetWidth));
+    var newTop = Math.max(0, Math.min(origTop + dy, window.innerHeight - panel.offsetHeight));
+    panel.style.left = newLeft + 'px';
+    panel.style.top = newTop + 'px';
+  }, { passive: true });
+
+  document.addEventListener('touchend', function() { dragging = false; });
+})();
+</script>
+</body>
+</html>
