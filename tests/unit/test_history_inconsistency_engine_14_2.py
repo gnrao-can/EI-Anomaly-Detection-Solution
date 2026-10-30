@@ -485,12 +485,6 @@ _llm_client_mod = load_service_module(_SERVICE, "llm_client", siblings=_SIBLINGS
 LLMServiceClient = _llm_client_mod.LLMServiceClient
 
 
-def _run(coro):
-    import asyncio
-
-    return asyncio.get_event_loop().run_until_complete(coro)
-
-
 class TestLLMServiceClient:
     """The client POSTs to /llm/narrative-contradiction and attaches the Bearer."""
 
